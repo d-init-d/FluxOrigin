@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 import 'sidebar_item.dart';
 
@@ -30,69 +31,28 @@ class Sidebar extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // User Profile Section
+          // App Branding Header
           Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? Colors.white.withOpacity(0.1)
-                        : AppColors.lightPrimary,
-                    borderRadius: BorderRadius.circular(20),
-                    gradient: isDark
-                        ? null
-                        : LinearGradient(
-                            colors: [
-                              AppColors.lightPrimary.withOpacity(0.7),
-                              AppColors.lightPrimary,
-                            ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
+            padding: const EdgeInsets.symmetric(vertical: 24.0),
+            child: Center(
+              child: RichText(
+                text: TextSpan(
+                  style: GoogleFonts.merriweather(
+                    fontSize: 34,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : const Color(0xFF000000),
                   ),
-                  child: Center(
-                    child: Text(
-                      'FL',
+                  children: [
+                    const TextSpan(text: 'Flux'),
+                    TextSpan(
+                      text: 'Origin',
                       style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: isDark ? Colors.grey[300] : Colors.white,
+                        color: isDark ? Colors.white : const Color(0xFF182b14),
                       ),
                     ),
-                  ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Flux User',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: isDark
-                              ? Colors.grey[200]
-                              : AppColors.lightPrimary,
-                        ),
-                      ),
-                      Text(
-                        'Premium Account',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: isDark
-                              ? Colors.white.withOpacity(0.7)
-                              : AppColors.lightPrimary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
 
