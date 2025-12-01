@@ -375,7 +375,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Đường dẫn Input/Output',
+                                  'Thư mục dự án',
                                   style: TextStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.w500,
@@ -386,7 +386,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  'Input: ${config.inputPath}\nOutput: ${config.outputPath}',
+                                  config.isConfigured
+                                      ? config.projectPath
+                                      : 'Chưa cấu hình',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: widget.isDark

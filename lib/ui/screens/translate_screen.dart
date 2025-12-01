@@ -62,14 +62,19 @@ class _TranslateScreenState extends State<TranslateScreen> {
     });
 
     try {
-      await _controller.processFile(filePath, (status, progress) {
-        if (mounted) {
-          setState(() {
-            _statusMessage = status;
-            _progress = progress;
-          });
-        }
-      });
+      await _controller.processFile(
+        filePath: filePath,
+        outputDir: configProvider.outputDir,
+        dictionaryDir: configProvider.dictionaryDir,
+        onUpdate: (status, progress) {
+          if (mounted) {
+            setState(() {
+              _statusMessage = status;
+              _progress = progress;
+            });
+          }
+        },
+      );
 
       if (mounted) {
         setState(() {

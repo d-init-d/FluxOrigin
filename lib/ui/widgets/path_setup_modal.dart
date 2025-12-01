@@ -1,9 +1,11 @@
+import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:path/path.dart' as path;
 import '../theme/app_theme.dart';
 import '../theme/config_provider.dart';
 
@@ -24,51 +26,68 @@ class PathSetupModal extends StatefulWidget {
 }
 
 class _PathSetupModalState extends State<PathSetupModal> {
-  final TextEditingController _inputController = TextEditingController();
-  final TextEditingController _outputController = TextEditingController();
+  final TextEditingController _projectController = TextEditingController();
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
     final config = context.read<ConfigProvider>();
-    _inputController.text = config.inputPath;
-    _outputController.text = config.outputPath;
+    _projectController.text = config.projectPath;
   }
 
   @override
   void dispose() {
-    _inputController.dispose();
-    _outputController.dispose();
+    _projectController.dispose();
     super.dispose();
   }
 
-  Future<void> _pickDirectory(TextEditingController controller) async {
+  Future<void> _pickDirectory() async {
     String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
     if (selectedDirectory != null) {
       setState(() {
-        controller.text = selectedDirectory;
+        _projectController.text = selectedDirectory;
       });
     }
   }
 
   Future<void> _saveConfig() async {
-    if (_inputController.text.isEmpty || _outputController.text.isEmpty) {
+    final projectPath = _projectController.text;
+    if (projectPath.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng chọn cả hai thư mục')),
+        const SnackBar(content: Text('Vui lòng chọn thư mục dự án')),
       );
       return;
     }
 
     setState(() => _isLoading = true);
-    await context.read<ConfigProvider>().setPaths(
-          _inputController.text,
-          _outputController.text,
-        );
-    setState(() => _isLoading = false);
 
-    if (widget.onClose != null) {
-      widget.onClose!();
+    try {
+      // Create subdirectories
+      final inputDir = Directory(path.join(projectPath, 'input'));
+      final outputDir = Directory(path.join(projectPath, 'output'));
+      final dictionaryDir = Directory(path.join(projectPath, 'dictionary'));
+
+      if (!await inputDir.exists()) await inputDir.create(recursive: true);
+      if (!await outputDir.exists()) await outputDir.create(recursive: true);
+      if (!await dictionaryDir.exists())
+        await dictionaryDir.create(recursive: true);
+
+      await context.read<ConfigProvider>().setProjectPath(projectPath);
+
+      if (mounted) {
+        setState(() => _isLoading = false);
+        if (widget.onClose != null) {
+          widget.onClose!();
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lỗi khi tạo thư mục: $e')),
+        );
+      }
     }
   }
 
@@ -112,7 +131,7 @@ class _PathSetupModalState extends State<PathSetupModal> {
                       children: [
                         Expanded(
                           child: Text(
-                            'Cấu hình đường dẫn',
+                            'Cấu hình Dự án',
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
@@ -150,16 +169,21 @@ class _PathSetupModalState extends State<PathSetupModal> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildPathInput(
-                          'Thư mục Input (Nguồn)',
-                          'Chọn thư mục chứa file cần dịch',
-                          _inputController,
+                        Text(
+                          'Hệ thống sẽ tự động tạo các thư mục con (input, output, dictionary) bên trong thư mục này.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: widget.isDark
+                                ? Colors.grey[400]
+                                : Colors.grey[600],
+                            fontStyle: FontStyle.italic,
+                          ),
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 16),
                         _buildPathInput(
-                          'Thư mục Output (Đích)',
-                          'Chọn thư mục lưu kết quả dịch',
-                          _outputController,
+                          'Thư mục Dự án (Project Folder)',
+                          'Chọn thư mục gốc cho dự án',
+                          _projectController,
                         ),
                       ],
                     ),
@@ -231,7 +255,7 @@ class _PathSetupModalState extends State<PathSetupModal> {
                                       CircularProgressIndicator(strokeWidth: 2),
                                 )
                               : const Text(
-                                  'Lưu cấu hình',
+                                  'Lưu & Tạo thư mục',
                                   style: TextStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.w500,
@@ -318,7 +342,7 @@ class _PathSetupModalState extends State<PathSetupModal> {
             ),
             const SizedBox(width: 8),
             IconButton(
-              onPressed: () => _pickDirectory(controller),
+              onPressed: _pickDirectory,
               icon: FaIcon(
                 FontAwesomeIcons.folderOpen,
                 size: 18,

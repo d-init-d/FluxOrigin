@@ -9,8 +9,12 @@ class TranslationController {
 
   /// Processes the file with resume capability.
   /// [onUpdate] callback returns status message and progress (0.0 to 1.0).
-  Future<void> processFile(String filePath,
-      Function(String status, double progress) onUpdate) async {
+  Future<void> processFile({
+    required String filePath,
+    required String outputDir,
+    required String dictionaryDir,
+    required Function(String status, double progress) onUpdate,
+  }) async {
     final String progressPath = "$filePath.flux_progress.json";
     TranslationProgress? progress =
         await TranslationProgress.loadFromFile(progressPath);
@@ -26,6 +30,7 @@ class TranslationController {
         throw Exception("File không tồn tại: $filePath");
 
       final String content = await file.readAsString();
+      final String fileName = path.basenameWithoutExtension(filePath);
 
       onUpdate("Đang phân tích và chia nhỏ văn bản...", 0.1);
       final List<String> chunks = TextProcessor.smartSplit(content);
@@ -37,11 +42,20 @@ class TranslationController {
       onUpdate("AI đang tạo từ điển tên riêng...", 0.3);
       final String glossary = await _aiService.generateGlossary(sample);
 
-      // Create output path (e.g., book.txt -> book_translated.txt)
-      final String dir = path.dirname(filePath);
-      final String name = path.basenameWithoutExtension(filePath);
+      // Save glossary to dictionaryDir
+      try {
+        final glossaryFile =
+            File(path.join(dictionaryDir, "${fileName}_glossary.txt"));
+        await glossaryFile.writeAsString(glossary);
+      } catch (e) {
+        print("Error saving glossary: $e");
+        // Non-critical error, continue
+      }
+
+      // Create output path in outputDir
       final String ext = path.extension(filePath);
-      final String outputPath = path.join(dir, "${name}_translated$ext");
+      final String outputPath =
+          path.join(outputDir, "${fileName}_translated$ext");
 
       progress = TranslationProgress(
         sourcePath: filePath,
