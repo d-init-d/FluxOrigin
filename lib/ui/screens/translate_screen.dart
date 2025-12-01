@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../theme/app_theme.dart';
 import '../widgets/language_selector.dart';
@@ -213,7 +214,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
                             ),
                           ),
                           Text(
-                            '.CSV, .TBX, .XLSX',
+                            '.CSV',
                             style: TextStyle(
                               fontSize: 12,
                               color: widget.isDark
@@ -225,7 +226,12 @@ class _TranslateScreenState extends State<TranslateScreen> {
                       ),
                     ),
                     OutlinedButton(
-                      onPressed: () {},
+                      onPressed: () async {
+                        await FilePicker.platform.pickFiles(
+                          type: FileType.custom,
+                          allowedExtensions: ['csv'],
+                        );
+                      },
                       style: OutlinedButton.styleFrom(
                         side: BorderSide(
                           color: widget.isDark

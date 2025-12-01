@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:file_picker/file_picker.dart';
 import '../theme/app_theme.dart';
 
 class FileUploadZone extends StatefulWidget {
@@ -12,7 +13,7 @@ class FileUploadZone extends StatefulWidget {
     super.key,
     required this.isDark,
     this.title = 'Kéo thả tài liệu vào đây',
-    this.subtitle = 'Hỗ trợ .PDF, .DOCX, .EPUB, .TXT',
+    this.subtitle = 'Hỗ trợ .TXT, .EPUB',
     this.icon = FontAwesomeIcons.cloudArrowUp,
   });
 
@@ -97,8 +98,11 @@ class _FileUploadZoneState extends State<FileUploadZone> {
                 ),
                 const SizedBox(height: 16),
                 ElevatedButton(
-                  onPressed: () {
-                    // File picker logic would go here
+                  onPressed: () async {
+                    await FilePicker.platform.pickFiles(
+                      type: FileType.custom,
+                      allowedExtensions: ['txt', 'epub'],
+                    );
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: widget.isDark
