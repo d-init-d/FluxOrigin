@@ -6,6 +6,7 @@ class TranslationProgress {
   final String outputPath;
   final String glossary;
   final String systemPrompt;
+  final String genre;
   final List<String> rawChunks;
   final List<String?> translatedChunks;
   int currentIndex;
@@ -16,6 +17,7 @@ class TranslationProgress {
     required this.outputPath,
     required this.glossary,
     required this.systemPrompt,
+    required this.genre,
     required this.rawChunks,
     required this.translatedChunks,
     required this.currentIndex,
@@ -28,6 +30,7 @@ class TranslationProgress {
       'outputPath': outputPath,
       'glossary': glossary,
       'systemPrompt': systemPrompt,
+      'genre': genre,
       'rawChunks': rawChunks,
       'translatedChunks': translatedChunks,
       'currentIndex': currentIndex,
@@ -41,6 +44,7 @@ class TranslationProgress {
       outputPath: json['outputPath'],
       glossary: json['glossary'],
       systemPrompt: json['systemPrompt'],
+      genre: json['genre'] ?? 'KHAC',
       rawChunks: List<String>.from(json['rawChunks']),
       translatedChunks: List<String?>.from(json['translatedChunks']),
       currentIndex: json['currentIndex'],

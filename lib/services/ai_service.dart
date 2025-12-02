@@ -40,24 +40,92 @@ class AIService {
     return "KHAC";
   }
 
-  String getSystemPrompt(String genre, String targetLanguage) {
-    if (targetLanguage == 'Tiếng Việt') {
+  String getSystemPrompt(String genre, String sourceLang, String targetLang) {
+    // Trường hợp đặc biệt: Tiếng Trung -> Tiếng Việt (Kiếm Hiệp/Ngôn Tình)
+    if (sourceLang == 'Tiếng Trung' && targetLang == 'Tiếng Việt') {
       return _prompts[genre] ?? _prompts['KHAC']!;
-    } else if (targetLanguage == 'Tiếng Anh') {
-      return "You are a professional translator. Translate the text into natural, fluent English. Pay attention to grammatical tense and subject-verb agreement. Avoid 'Chinglish' or 'Vietlish' phrasing.";
-    } else if (targetLanguage == 'Tiếng Trung') {
-      return "You are a professional translator. Translate the text into Standard Chinese (Simplified). Use appropriate idioms (Chengyu) where fitting.";
-    } else {
-      return "You are a professional translator. Translate the text into $targetLanguage.";
     }
+    
+    // Các trường hợp khác: Prompt chung
+    return "You are a professional translator translating from $sourceLang to $targetLang. Translate the text naturally and fluently while preserving the original meaning and tone.";
   }
 
-  Future<String> generateGlossary(String sample, String modelName) async {
+  Future<String> generateGlossary(String sample, String modelName, String sourceLanguage, String genre) async {
+    // Prompt khác nhau tùy theo ngôn ngữ nguồn và thể loại
+    String promptContent;
+    if (sourceLanguage == 'Tiếng Trung') {
+      // Kiểm tra thể loại: Kiếm Hiệp/Ngôn Tình vs Khoa học/Kỹ thuật/Hiện đại
+      bool isWuxia = genre == 'KIEMHIEP' || genre == 'NGONTINH';
+      
+      if (isWuxia) {
+        // === PROMPT CHO KIẾM HIỆP / NGÔN TÌNH (GIỮ NGUYÊN CŨ) ===
+        promptContent = """NHIỆM VỤ: Phân tích văn bản Tiếng Trung và trích xuất các Tên Riêng (Nhân vật, Địa danh, Môn phái, Chiêu thức) để tạo từ điển Hán Việt.
+
+QUY TẮC BẮT BUỘC (TUÂN THỦ TUYỆT ĐỐI):
+1. ĐỊNH DẠNG OUTPUT: Chỉ trả về CSV 2 cột: `Từ gốc Trung,Hán Việt`. Không thêm STT, không thêm giải thích.
+2. DỊCH HÁN VIỆT CHUẨN:
+   - "长老" (Elder) PHẢI dịch là "Trưởng lão". (Cấm dịch là Lão Đế, Giả Li).
+   - "宗" (Sect) PHẢI dịch là "Tông".
+   - "师兄/师弟" PHẢI dịch là "Sư huynh/Sư đệ".
+   - Tên người: Dịch nguyên theo âm Hán Việt (Ví dụ: 叶尘 -> Diệp Trần).
+3. KHÔNG ĐƯỢC BỊA ĐẶT: Nếu không chắc chắn về âm Hán Việt, hãy bỏ qua từ đó.
+4. KHÔNG dịch sang tiếng Anh.
+
+Văn bản:
+$sample""";
+      } else {
+        // === PROMPT CHO KHOA HỌC / KỸ THUẬT / HIỆN ĐẠI (MỚI) ===
+        promptContent = """NHIỆM VỤ: Trích xuất thuật ngữ chuyên ngành (Technical Terms) và Tên riêng từ văn bản Tiếng Trung.
+
+QUY TẮC QUAN TRỌNG:
+1. ĐẦU RA CSV: `Từ gốc,Tiếng Việt`. Không thêm STT, không thêm giải thích.
+2. THUẬT NGỮ CÔNG NGHỆ/KHOA HỌC:
+   - GIỮ NGUYÊN các từ viết tắt tiếng Anh (LLM, LoRA, AI, GPU, PC, API, CPU, RAM, VRAM...). KHÔNG phiên âm (Ví dụ: Không dịch LoRA thành La Lạp).
+   - Các thuật ngữ kỹ thuật nên dịch sang tiếng Việt hiện đại (Ví dụ: "微调" -> "Tinh chỉnh", "显存" -> "VRAM/Bộ nhớ đồ họa", "模型" -> "Mô hình").
+3. KHÔNG dùng từ Hán Việt cổ trang (Không dịch "Teacher" là "Sư phụ" trong bối cảnh trường học hiện đại, dùng "Giáo viên").
+4. Định nghĩa (Definition) nếu có hãy để ở cột 3.
+
+Văn bản:
+$sample""";
+      }
+    } else if (sourceLanguage == 'Tiếng Anh') {
+      promptContent = """TASK: Extract Technical Terms and Proper Nouns from the English text below.
+
+STRICT OUTPUT FORMAT (CSV - EXACTLY 2 COLUMNS):
+Original Term,Vietnamese Translation
+
+RULES:
+1. Output ONLY 2 columns: `Original Term,Vietnamese Translation`. NO Definition column. NO extra columns.
+2. Keep English acronyms and technical terms as-is (Blockchain, AI, Node, API, CPU, GPU, LLM...).
+3. Translate descriptive terms naturally (e.g., "Decentralization" -> "Phi tập trung").
+4. Keep Western names as-is (e.g., "Satoshi Nakamoto" -> "Satoshi Nakamoto").
+5. Do NOT add Header row. Do NOT add numbering. Do NOT explain anything.
+
+EXAMPLE OUTPUT:
+Blockchain,Blockchain
+Decentralization,Phi tập trung
+Smart Contract,Hợp đồng thông minh
+Satoshi Nakamoto,Satoshi Nakamoto
+
+Text:
+$sample""";
+    } else {
+      promptContent = """Analyze the text and list important Proper Nouns (Names, Places, Organizations). Output CSV with two columns: Original Term, Vietnamese Translation.
+
+Example format:
+Term1,Translation1
+Term2,Translation2
+
+Do NOT add Header. Do NOT explain anything.
+
+Text:
+$sample""";
+    }
+
     final response = await chatCompletion(modelName: modelName, messages: [
       {
         "role": "user",
-        "content":
-            "Hãy phân tích đoạn văn sau và liệt kê các Tên Riêng (Nhân vật, Địa danh, Môn phái, Chiêu thức) quan trọng nhất để làm Từ Điển dịch thuật.\n\nYou MUST output the CSV with exactly two columns:\nColumn 1: The EXACT English term found in the text.\nColumn 2: The Vietnamese translation (Hán Việt preferred for names/sects).\n\nDo NOT put the Vietnamese meaning in the first column.\n\nExample format:\nHeavenly Sword Sect,Thiên Kiếm Tông\nYe Chen,Diệp Trần\n\"Robert, Jr.\",Robert Con\n\nTuyệt đối KHÔNG thêm Header. Tuyệt đối không giải thích gì thêm.\n\nNội dung:\n$sample"
+        "content": promptContent
       }
     ], options: {
       "num_predict": 3000
@@ -133,8 +201,10 @@ class AIService {
     String systemPrompt,
     String glossaryCsv,
     String modelName,
+    String sourceLanguage,
     String targetLanguage, {
     String? previousContext,
+    String? genre,
   }) async {
     final isSmallModel = modelName.toLowerCase().contains("0.5b") ||
         modelName.toLowerCase().contains("1.5b");
@@ -142,17 +212,35 @@ class AIService {
     // LAYER 3: Strict Constraints to prevent garbage output
     String constraints = "";
     if (targetLanguage == 'Tiếng Việt') {
-      constraints = """
+      // Kiểm tra thể loại để áp dụng quy tắc phù hợp
+      bool isWuxia = genre == 'KIEMHIEP' || genre == 'NGONTINH';
+      
+      if (isWuxia) {
+        // === CONSTRAINTS CHO KIẾM HIỆP / NGÔN TÌNH ===
+        constraints = """
 CRITICAL OUTPUT RULES:
-1. Translate to natural Vietnamese.
-2. **NEVER** use Chinese punctuation (， 。 ： ！ ？). Use standard ASCII punctuation ( , . : ! ? ).
-3. **NEVER** output English words or nonsense/hallucinated words.
-4. If the source sentence is cut off, finish it logically based on context.
-5. **STRATEGY:** Use Hán-Việt (Sino-Vietnamese) for all Wuxia/Cultivation terms.
-6. **FORMAT:** If a term is ambiguous, write the Vietnamese first, followed by the original in brackets. Example: 'Hắc Thiết Kiếm (黑铁剑)'.
-7. **NO CHINESE CHARACTERS ALONE:** Do not output Chinese characters without their Vietnamese translation.
-8. **NO TRANSLATOR NOTES:** Do not add footnotes or explanations.
+1. Translate to natural Vietnamese (Tiếng Việt).
+2. **ABSOLUTELY FORBIDDEN:** Do not output ANY English words (e.g., 'cold', 'surrounding', 'kill', 'said'). Translate them ALL to Vietnamese context.
+3. **PUNCTUATION:** Convert Chinese punctuation (「...」, ，, 。) to standard Vietnamese punctuation ("...", ,, .).
+4. **TERMINOLOGY:** Use Sino-Vietnamese (Hán-Việt) for all Proper Nouns, Cultivation Ranks, and Sect Names based on the Glossary.
+5. Never output the Chinese text again. Only the Vietnamese translation.
+6. **NO TRANSLATOR NOTES:** Do not add footnotes or explanations.
 """;
+      } else {
+        // === CONSTRAINTS CHO KHOA HỌC / KỸ THUẬT / HIỆN ĐẠI ===
+        constraints = """
+CRITICAL OUTPUT RULES:
+1. **FULL SENTENCE TRANSLATION:** You MUST translate the complete sentence structure, verbs, prepositions, and connecting words into Vietnamese. DO NOT just list the technical terms.
+   - Wrong: "Blockchain (Blockchain) (Decentralization)."
+   - Right: "Cốt lõi của Blockchain (Blockchain) nằm ở sự phi tập trung (Decentralization)."
+2. **TECHNICAL TERMS:** Keep English acronyms (Blockchain, AI, Node, CPU...) but translate the context around them naturally.
+3. **NO CHINESE CHARACTERS:** Do not output Chinese text.
+4. **PUNCTUATION:** Convert Chinese punctuation (「...」, ，, 。) to standard Vietnamese punctuation ("...", ,, .).
+5. **MODERN STYLE:** Use modern Vietnamese vocabulary, NOT archaic Sino-Vietnamese (Hán-Việt cổ).
+6. Never output the source text again. Only the Vietnamese translation.
+7. **NO TRANSLATOR NOTES:** Do not add footnotes or explanations.
+""";
+      }
     }
 
     String contextInstruction = "";
@@ -226,13 +314,13 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
       {
         "role": "user",
         "content":
-            "Translate the following text into $targetLanguage:\n\n$chunk"
+            "Translate the following text from $sourceLanguage into $targetLanguage:\n\n$chunk"
       }
     ], options: {
       "timeout": 28800000
     });
 
-    final cleaned = _cleanResponse(rawResponse, targetLanguage);
+    final cleaned = _cleanResponse(rawResponse, sourceLanguage, targetLanguage);
 
     if (_isGarbageOutput(cleaned)) {
       return "";
@@ -255,33 +343,41 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
   }
 
   /// LAYER 2: Aggressive String Sanitization
-  String _cleanResponse(String raw, String targetLang) {
+  String _cleanResponse(String raw, String sourceLang, String targetLang) {
     if (targetLang == 'Tiếng Trung') {
       return raw.trim();
     }
 
     String clean = raw.trim();
 
-    // BRUTE FORCE: Normalize Chinese/Weird Punctuation FIRST
-    clean = clean.replaceAll('。', '. ');
-    clean = clean.replaceAll('，', ', ');
-    clean = clean.replaceAll('、', ', ');
-    clean = clean.replaceAll('：', ': ');
-    clean = clean.replaceAll('？', '? ');
-    clean = clean.replaceAll('！', '! ');
+    // Normalize Chinese quotes to standard quotes (áp dụng cho mọi ngôn ngữ nguồn)
     clean = clean.replaceAll('"', '"');
     clean = clean.replaceAll('"', '"');
-    clean = clean.replaceAll(''', "'");
-    clean = clean.replaceAll(''', "'");
-    clean = clean.replaceAll('（', '(');
-    clean = clean.replaceAll('）', ')');
-    clean = clean.replaceAll('《', '"');
-    clean = clean.replaceAll('》', '"');
-    clean = clean.replaceAll('…', '...');
-    clean = clean.replaceAll('～', '~');
-    clean = clean.replaceAll('·', ' ');
-    clean = clean.replaceAll('—', '-');
-    clean = clean.replaceAll('–', '-');
+    clean = clean.replaceAll('「', '"');
+    clean = clean.replaceAll('」', '"');
+    clean = clean.replaceAll('『', '"');
+    clean = clean.replaceAll('』', '"');
+
+    // Chỉ normalize dấu câu Trung Quốc nếu nguồn là Tiếng Trung
+    if (sourceLang == 'Tiếng Trung') {
+      clean = clean.replaceAll('。', '. ');
+      clean = clean.replaceAll('，', ', ');
+      clean = clean.replaceAll('、', ', ');
+      clean = clean.replaceAll('：', ': ');
+      clean = clean.replaceAll('？', '? ');
+      clean = clean.replaceAll('！', '! ');
+      clean = clean.replaceAll(''', "'");
+      clean = clean.replaceAll(''', "'");
+      clean = clean.replaceAll('（', '(');
+      clean = clean.replaceAll('）', ')');
+      clean = clean.replaceAll('《', '"');
+      clean = clean.replaceAll('》', '"');
+      clean = clean.replaceAll('…', '...');
+      clean = clean.replaceAll('～', '~');
+      clean = clean.replaceAll('·', ' ');
+      clean = clean.replaceAll('—', '-');
+      clean = clean.replaceAll('–', '-');
+    }
 
     // Remove Hallucinated Symbol Sequences - filter out lines that are ONLY punctuation
     final lines = clean.split('\n');
@@ -314,13 +410,16 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
       }
     }
 
+    // Xóa ký tự Trung Quốc nếu đích là Tiếng Việt (bất kể ngôn ngữ nguồn)
+    // Lý do: Model Qwen đôi khi bị ảo giác chèn tiếng Trung vào bản dịch Anh-Việt
     if (targetLang == 'Tiếng Việt') {
-      // Remove parenthesized Chinese: (黑铁剑) or [黑铁剑]
+      // Remove parenthesized Chinese: (黑铁剑) or [黑铁剑] or （黑铁剑）
       clean = clean.replaceAll(RegExp(r'\([^)]*[\u4e00-\u9fa5]+[^)]*\)'), '');
       clean = clean.replaceAll(RegExp(r'\[[^\]]*[\u4e00-\u9fa5]+[^\]]*\]'), '');
+      clean = clean.replaceAll(RegExp(r'（[^）]*[\u4e00-\u9fa5]+[^）]*）'), '');
 
       // Remove loose Chinese characters
-      clean = clean.replaceAll(RegExp(r'[\u4e00-\u9fa5]'), '');
+      clean = clean.replaceAll(RegExp(r'[\u4e00-\u9fa5]+'), '');
 
       // Clean up hanging punctuation left after Chinese removal
       clean = clean.replaceAll(RegExp(r'(\s*[,.:;]\s*){2,}'), ' ');

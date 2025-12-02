@@ -7,6 +7,7 @@ import '../models/translation_progress.dart';
 import '../services/ai_service.dart';
 import '../services/web_search_service.dart';
 import '../utils/text_processor.dart';
+import '../utils/file_parser.dart';
 
 class TranslationController {
   final AIService _aiService = AIService();
@@ -63,6 +64,7 @@ class TranslationController {
     required String filePath,
     required String dictionaryDir,
     required String modelName,
+    required String sourceLanguage,
     required String targetLanguage,
     required Function(String status, double progress) onUpdate,
     required bool allowInternet,
@@ -92,26 +94,28 @@ class TranslationController {
         progress = null;
       }
       onUpdate("Đang đọc file gốc...", 0.0);
-      final File file = File(filePath);
-      if (!await file.exists()) {
-        throw Exception("File không tồn tại: $filePath");
-      }
-
-      final String content = await file.readAsString();
+      
+      // Extract text content based on file type (TXT or EPUB)
+      // Use compute() for heavy EPUB parsing to avoid blocking UI
+      final String content = await compute(_extractTextInIsolate, filePath);
       final String fileName = path.basenameWithoutExtension(filePath);
 
       onUpdate("Đang phân tích và chia nhỏ văn bản...", 0.1);
-      final List<String> chunks = TextProcessor.smartSplit(content);
+      // Use compute() for heavy text splitting to avoid blocking UI
+      final List<String> chunks = await compute(_smartSplitInIsolate, content);
       final String sample = TextProcessor.createSample(content);
 
       onUpdate("AI đang đọc thử để xác định thể loại...", 0.2);
-      final String genreKey = await _aiService.detectGenre(sample, modelName);
+      // Chỉ detect genre nếu nguồn là Tiếng Trung, các trường hợp khác dùng "KHAC"
+      final String genreKey = sourceLanguage == 'Tiếng Trung'
+          ? await _aiService.detectGenre(sample, modelName)
+          : "KHAC";
       final String systemPrompt =
-          _aiService.getSystemPrompt(genreKey, targetLanguage);
+          _aiService.getSystemPrompt(genreKey, sourceLanguage, targetLanguage);
 
       onUpdate("AI đang tạo từ điển tên riêng...", 0.3);
       final String glossaryCsv =
-          await _aiService.generateGlossary(sample, modelName);
+          await _aiService.generateGlossary(sample, modelName, sourceLanguage, genreKey);
 
       // Smart Merge: Merge AI glossary with existing user CSV
       final glossaryFile =
@@ -153,6 +157,7 @@ class TranslationController {
         outputPath: outputPath,
         glossary: glossary,
         systemPrompt: systemPrompt,
+        genre: genreKey,
         rawChunks: chunks,
         translatedChunks: List<String?>.filled(chunks.length, null),
         currentIndex: 0,
@@ -194,8 +199,10 @@ class TranslationController {
           progress.systemPrompt,
           progress.glossary,
           modelName,
+          sourceLanguage,
           targetLanguage,
           previousContext: previousContext,
+          genre: progress.genre,
         );
 
         progress.translatedChunks[i] = translated;
@@ -424,4 +431,17 @@ class TranslationController {
       return await glossaryFile.readAsString();
     }
   }
+}
+
+// Top-level functions for compute() isolate execution
+// These must be top-level or static to work with compute()
+
+/// Extracts text from file in isolate (supports TXT and EPUB)
+Future<String> _extractTextInIsolate(String filePath) async {
+  return FileParser.extractText(filePath);
+}
+
+/// Splits text into chunks in isolate
+List<String> _smartSplitInIsolate(String content) {
+  return TextProcessor.smartSplit(content);
 }

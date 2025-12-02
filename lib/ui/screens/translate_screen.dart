@@ -153,6 +153,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
         filePath: _selectedFilePath!,
         dictionaryDir: configProvider.dictionaryDir,
         modelName: configProvider.selectedModel,
+        sourceLanguage: _sourceLang,
         targetLanguage: _targetLang,
         allowInternet: allowInternet,
         resume: resume,
@@ -224,14 +225,14 @@ class _TranslateScreenState extends State<TranslateScreen> {
     if (_translatedContent == null || _selectedFilePath == null) return;
 
     final String fileName = path.basenameWithoutExtension(_selectedFilePath!);
-    final String ext = path.extension(_selectedFilePath!);
-    final String defaultName = "${fileName}_translated$ext";
+    // Output is ALWAYS .txt regardless of input format
+    final String defaultName = "${fileName}_translated.txt";
 
     String? outputFile = await FilePicker.platform.saveFile(
       dialogTitle: 'Lưu kết quả dịch',
       fileName: defaultName,
       type: FileType.custom,
-      allowedExtensions: ['txt', 'epub'], // Assuming these are supported
+      allowedExtensions: ['txt'], // Output is always TXT
     );
 
     if (outputFile != null) {
