@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import '../theme/config_provider.dart';
 import '../widgets/path_setup_modal.dart';
 import '../../services/ai_service.dart';
+import '../../utils/app_strings.dart';
 
 class SettingsScreen extends StatefulWidget {
   final bool isDark;
@@ -21,6 +22,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     with WidgetsBindingObserver {
   // String _selectedModel = 'Qwen2.5-7B'; // Removed local state
   bool _isModelDropdownOpen = false;
+  bool _isLanguageDropdownOpen = false;
 
   final List<String> _models = [
     'Qwen2.5-0.5B',
@@ -110,13 +112,21 @@ class _SettingsScreenState extends State<SettingsScreen>
         await _checkInstalledModels();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Tải model $uiName thành công!')),
+            SnackBar(
+                content: Text(AppStrings.get(
+                        context.read<ConfigProvider>().appLanguage,
+                        'download_success')
+                    .replaceFirst('model', 'model $uiName'))),
           );
         }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Tải model $uiName thất bại.')),
+            SnackBar(
+                content: Text(AppStrings.get(
+                        context.read<ConfigProvider>().appLanguage,
+                        'download_fail')
+                    .replaceFirst('model', 'model $uiName'))),
           );
         }
       }
@@ -137,6 +147,7 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final lang = context.watch<ConfigProvider>().appLanguage;
     return Container(
       padding: const EdgeInsets.all(32),
       child: Center(
@@ -145,7 +156,7 @@ class _SettingsScreenState extends State<SettingsScreen>
           child: ListView(
             children: [
               Text(
-                'Cài đặt',
+                AppStrings.get(lang, 'settings_title'),
                 style: GoogleFonts.merriweather(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
@@ -158,7 +169,7 @@ class _SettingsScreenState extends State<SettingsScreen>
               // Appearance Section
               _SectionHeader(
                 icon: FontAwesomeIcons.palette,
-                title: 'GIAO DIỆN',
+                title: AppStrings.get(lang, 'appearance_section'),
                 isDark: widget.isDark,
               ),
               const SizedBox(height: 16),
@@ -175,8 +186,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                 child: Column(
                   children: [
                     _SettingRow(
-                      title: 'Chế độ tối (Dark Mode)',
-                      subtitle: 'Sử dụng giao diện tối để bảo vệ mắt',
+                      title: AppStrings.get(lang, 'dark_mode'),
+                      subtitle: AppStrings.get(lang, 'dark_mode_subtitle'),
                       isDark: widget.isDark,
                       trailing: Consumer<ThemeNotifier>(
                         builder: (context, themeNotifier, _) => Switch(
@@ -190,8 +201,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                       showBorder: true,
                     ),
                     _SettingRow(
-                      title: 'Font chữ hiển thị',
-                      subtitle: 'Tùy chỉnh font chữ cho phần đọc',
+                      title: AppStrings.get(lang, 'display_font'),
+                      subtitle: AppStrings.get(lang, 'display_font_subtitle'),
                       isDark: widget.isDark,
                       trailing: Container(
                         padding: const EdgeInsets.symmetric(
@@ -217,17 +228,139 @@ class _SettingsScreenState extends State<SettingsScreen>
                           ),
                         ),
                       ),
+                      showBorder: true,
+                    ),
+                    _SettingRow(
+                      title: AppStrings.get(lang, 'language'),
+                      subtitle: AppStrings.get(lang, 'language_subtitle'),
+                      isDark: widget.isDark,
+                      trailing: MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: GestureDetector(
+                          onTap: () => setState(() => _isLanguageDropdownOpen =
+                              !_isLanguageDropdownOpen),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 8),
+                            constraints: const BoxConstraints(minWidth: 120),
+                            decoration: BoxDecoration(
+                              color: widget.isDark
+                                  ? Colors.black.withValues(alpha: 0.2)
+                                  : AppColors.lightPaper,
+                              border: Border.all(
+                                color: widget.isDark
+                                    ? const Color(0xFF444444)
+                                    : AppColors.lightBorder,
+                              ),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  lang == 'vi' ? 'Tiếng Việt' : 'English',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: widget.isDark
+                                        ? Colors.grey[300]
+                                        : AppColors.lightPrimary,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                FaIcon(
+                                  _isLanguageDropdownOpen
+                                      ? FontAwesomeIcons.chevronUp
+                                      : FontAwesomeIcons.chevronDown,
+                                  size: 12,
+                                  color: widget.isDark
+                                      ? Colors.grey
+                                      : Colors.grey[600],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
+              if (_isLanguageDropdownOpen)
+                Container(
+                  margin: const EdgeInsets.only(top: 8),
+                  decoration: BoxDecoration(
+                    color: widget.isDark ? AppColors.darkSurface : Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: widget.isDark
+                          ? AppColors.darkBorder
+                          : AppColors.lightBorder,
+                    ),
+                  ),
+                  child: Column(
+                    children: ['vi', 'en'].map((l) {
+                      final isSelected = lang == l;
+                      return InkWell(
+                        onTap: () {
+                          context.read<ConfigProvider>().setAppLanguage(l);
+                          setState(() {
+                            _isLanguageDropdownOpen = false;
+                          });
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? (widget.isDark
+                                    ? Colors.white.withValues(alpha: 0.1)
+                                    : AppColors.lightPrimary
+                                        .withValues(alpha: 0.05))
+                                : Colors.transparent,
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  l == 'vi' ? 'Tiếng Việt' : 'English',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: isSelected
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                    color: isSelected
+                                        ? (widget.isDark
+                                            ? Colors.white
+                                            : AppColors.lightPrimary)
+                                        : (widget.isDark
+                                            ? Colors.grey[300]
+                                            : Colors.grey[600]),
+                                  ),
+                                ),
+                              ),
+                              if (isSelected)
+                                FaIcon(
+                                  FontAwesomeIcons.check,
+                                  size: 12,
+                                  color: widget.isDark
+                                      ? Colors.white
+                                      : AppColors.lightPrimary,
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ).animate().fadeIn(),
 
               const SizedBox(height: 32),
 
               // AI Section
               _SectionHeader(
                 icon: FontAwesomeIcons.brain,
-                title: 'CẤU HÌNH AI',
+                title: AppStrings.get(lang, 'ai_config_section'),
                 isDark: widget.isDark,
                 onRefresh: _checkInstalledModels,
                 isLoading: _isLoadingModels,
@@ -244,8 +377,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                   ),
                 ),
                 child: _SettingRow(
-                  title: 'Mô hình dịch thuật',
-                  subtitle: 'Chọn mô hình ngôn ngữ chính',
+                  title: AppStrings.get(lang, 'translation_model'),
+                  subtitle: AppStrings.get(lang, 'translation_model_subtitle'),
                   isDark: widget.isDark,
                   trailing: MouseRegion(
                     cursor: SystemMouseCursors.click,
@@ -424,8 +557,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                   onTap: () => _showManageModelsDialog(context),
                   borderRadius: BorderRadius.circular(12),
                   child: _SettingRow(
-                    title: 'Quản lý Model đã tải',
-                    subtitle: '${_installedModels.length} model đã cài đặt',
+                    title: AppStrings.get(lang, 'manage_models'),
+                    subtitle:
+                        '${_installedModels.length} ${AppStrings.get(lang, 'manage_models_subtitle')}',
                     isDark: widget.isDark,
                     trailing: FaIcon(
                       FontAwesomeIcons.hardDrive,
@@ -443,7 +577,7 @@ class _SettingsScreenState extends State<SettingsScreen>
               // Translation Configuration Section
               _SectionHeader(
                 icon: FontAwesomeIcons.gears,
-                title: 'CẤU HÌNH DỊCH THUẬT',
+                title: AppStrings.get(lang, 'translation_config_section'),
                 isDark: widget.isDark,
               ),
               const SizedBox(height: 16),
@@ -478,7 +612,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Thư mục dự án',
+                                  AppStrings.get(lang, 'project_folder'),
                                   style: TextStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.w500,
@@ -491,7 +625,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                                 Text(
                                   config.isConfigured
                                       ? config.projectPath
-                                      : 'Chưa cấu hình',
+                                      : AppStrings.get(lang, 'not_configured'),
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: widget.isDark
@@ -522,7 +656,7 @@ class _SettingsScreenState extends State<SettingsScreen>
               Align(
                 alignment: Alignment.bottomRight,
                 child: Text(
-                  'FluxOrigin v1.0.0 - Made with ☕ by d-init-d',
+                  AppStrings.get(lang, 'footer_credit'),
                   style: TextStyle(
                     fontSize: 11,
                     fontFamily: 'Consolas',
@@ -718,13 +852,17 @@ class _ManageModelsDialogState extends State<_ManageModelsDialog> {
         widget.onModelsChanged();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Đã xóa model $modelName')),
+            SnackBar(
+                content: Text(
+                    '${AppStrings.get(context.read<ConfigProvider>().appLanguage, 'deleted_model')} $modelName')),
           );
         }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Xóa model $modelName thất bại')),
+            SnackBar(
+                content: Text(
+                    '${AppStrings.get(context.read<ConfigProvider>().appLanguage, 'delete_fail')} $modelName')),
           );
         }
       }
@@ -738,13 +876,14 @@ class _ManageModelsDialogState extends State<_ManageModelsDialog> {
         backgroundColor: widget.isDark ? AppColors.darkSurface : Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
-          'Xác nhận xóa',
+          AppStrings.get(context.read<ConfigProvider>().appLanguage,
+              'delete_model_confirm'),
           style: TextStyle(
             color: widget.isDark ? Colors.white : AppColors.lightPrimary,
           ),
         ),
         content: Text(
-          'Bạn có chắc muốn xóa model "$modelName"?',
+          '${AppStrings.get(context.read<ConfigProvider>().appLanguage, 'delete_model_question')} "$modelName"?',
           style: TextStyle(
             color: widget.isDark ? Colors.grey[300] : Colors.grey[700],
           ),
@@ -753,7 +892,8 @@ class _ManageModelsDialogState extends State<_ManageModelsDialog> {
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text(
-              'Hủy',
+              AppStrings.get(
+                  context.read<ConfigProvider>().appLanguage, 'cancel'),
               style: TextStyle(
                 color: widget.isDark ? Colors.grey[400] : Colors.grey[600],
               ),
@@ -771,7 +911,8 @@ class _ManageModelsDialogState extends State<_ManageModelsDialog> {
                 borderRadius: BorderRadius.circular(8),
               ),
             ),
-            child: const Text('Xóa'),
+            child: Text(AppStrings.get(
+                context.read<ConfigProvider>().appLanguage, 'delete')),
           ),
         ],
       ),
