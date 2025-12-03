@@ -127,60 +127,55 @@ class _LanguageSelectorState extends State<LanguageSelector> {
     final appLang = context.read<ConfigProvider>().appLanguage;
     final isDisabled = lang == widget.disabledLanguage;
 
-    return IgnorePointer(
-      ignoring: isDisabled,
-      child: Opacity(
-        opacity: isDisabled ? 0.5 : 1.0,
-        child: Row(
-          children: [
-            Container(
-              width: 24,
-              height: 24,
-              decoration: BoxDecoration(
-                color: widget.isDark
-                    ? Colors.white.withOpacity(0.2)
-                    : Colors.grey[100],
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Center(
-                child: Text(
-                  _getLanguageCode(lang),
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: widget.isDark ? Colors.white : Colors.grey[500],
-                  ),
-                ),
-              ),
+    return Opacity(
+      opacity: isDisabled ? 0.5 : 1.0,
+      child: Row(
+        children: [
+          Container(
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: widget.isDark
+                  ? Colors.white.withOpacity(0.2)
+                  : Colors.grey[100],
+              borderRadius: BorderRadius.circular(4),
             ),
-            const SizedBox(width: 12),
-            Expanded(
+            child: Center(
               child: Text(
-                _getLocalizedLanguageName(lang, appLang),
+                _getLanguageCode(lang),
                 style: TextStyle(
-                  fontSize: 14,
-                  color: isDisabled
-                      ? Colors.grey
-                      : (isSelected
-                          ? (widget.isDark
-                              ? Colors.white
-                              : AppColors.lightPrimary)
-                          : (widget.isDark
-                              ? Colors.grey[300]
-                              : Colors.grey[600])),
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                  decoration: null,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: widget.isDark ? Colors.white : Colors.grey[500],
                 ),
               ),
             ),
-            if (isSelected)
-              FaIcon(
-                FontAwesomeIcons.check,
-                size: 12,
-                color: widget.isDark ? Colors.white : AppColors.lightPrimary,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _getLocalizedLanguageName(lang, appLang),
+              style: TextStyle(
+                fontSize: 14,
+                color: isDisabled
+                    ? Colors.grey
+                    : (isSelected
+                        ? (widget.isDark
+                            ? Colors.white
+                            : AppColors.lightPrimary)
+                        : (widget.isDark ? Colors.white : Colors.grey[800])),
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                decoration: null,
               ),
-          ],
-        ),
+            ),
+          ),
+          if (isSelected)
+            FaIcon(
+              FontAwesomeIcons.check,
+              size: 12,
+              color: widget.isDark ? Colors.white : AppColors.lightPrimary,
+            ),
+        ],
       ),
     );
   }
