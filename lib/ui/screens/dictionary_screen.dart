@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../theme/config_provider.dart';
 import '../widgets/upload_dictionary_modal.dart';
+import '../../utils/app_strings.dart';
 
 class DictionaryScreen extends StatefulWidget {
   final bool isDark;
@@ -59,12 +60,13 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
           final file = entity;
           final stat = await file.stat();
           final fileName = file.path.split(Platform.pathSeparator).last;
-          
+
           // Count lines (approximate entry count)
           int lineCount = 0;
           try {
             final content = await file.readAsString();
-            lineCount = content.split('\n').where((l) => l.trim().isNotEmpty).length;
+            lineCount =
+                content.split('\n').where((l) => l.trim().isNotEmpty).length;
           } catch (_) {}
 
           // Format file size
@@ -96,6 +98,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final lang = context.watch<ConfigProvider>().appLanguage;
     return Stack(
       children: [
         RefreshIndicator(
@@ -113,7 +116,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Từ điển & Thuật ngữ',
+                          AppStrings.get(lang, 'dictionary_title'),
                           style: GoogleFonts.merriweather(
                             fontSize: 24,
                             fontWeight: FontWeight.bold,
@@ -124,7 +127,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Quản lý các tệp từ điển cá nhân và chuyên ngành.',
+                          AppStrings.get(lang, 'dictionary_subtitle'),
                           style: TextStyle(
                             fontSize: 14,
                             color: widget.isDark
@@ -138,8 +141,9 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                       children: [
                         IconButton(
                           onPressed: _loadDictionaries,
-                          icon: const FaIcon(FontAwesomeIcons.arrowsRotate, size: 14),
-                          tooltip: 'Làm mới',
+                          icon: const FaIcon(FontAwesomeIcons.arrowsRotate,
+                              size: 14),
+                          tooltip: AppStrings.get(lang, 'refresh_tooltip'),
                           style: IconButton.styleFrom(
                             backgroundColor: widget.isDark
                                 ? Colors.white.withValues(alpha: 0.1)
@@ -150,10 +154,11 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                         ElevatedButton.icon(
                           onPressed: () => setState(() => _showModal = true),
                           icon: const FaIcon(FontAwesomeIcons.plus, size: 14),
-                          label: const Text('Thêm mới'),
+                          label: Text(AppStrings.get(lang, 'add_new')),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                widget.isDark ? Colors.white : AppColors.lightPrimary,
+                            backgroundColor: widget.isDark
+                                ? Colors.white
+                                : AppColors.lightPrimary,
                             foregroundColor:
                                 widget.isDark ? Colors.black : Colors.white,
                             elevation: 0,
@@ -175,7 +180,8 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                 Expanded(
                   child: Container(
                     decoration: BoxDecoration(
-                      color: widget.isDark ? AppColors.darkSurface : Colors.white,
+                      color:
+                          widget.isDark ? AppColors.darkSurface : Colors.white,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: widget.isDark
@@ -209,7 +215,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                               Expanded(
                                 flex: 3,
                                 child: Text(
-                                  'TÊN TỪ ĐIỂN',
+                                  AppStrings.get(lang, 'dictionary_name'),
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
@@ -223,7 +229,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                               Expanded(
                                 flex: 1,
                                 child: Text(
-                                  'KÍCH THƯỚC',
+                                  AppStrings.get(lang, 'dictionary_size'),
                                   textAlign: TextAlign.right,
                                   style: TextStyle(
                                     fontSize: 12,
@@ -238,7 +244,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                               Expanded(
                                 flex: 1,
                                 child: Text(
-                                  'SỐ TỪ',
+                                  AppStrings.get(lang, 'dictionary_entries'),
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     fontSize: 12,
@@ -275,7 +281,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                           ),
                           child: Center(
                             child: Text(
-                              'Hiển thị ${_dictionaries.length} từ điển',
+                              '${AppStrings.get(lang, 'showing_dictionaries')} ${_dictionaries.length}',
                               style: TextStyle(
                                 fontSize: 12,
                                 fontStyle: FontStyle.italic,
@@ -309,6 +315,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
   }
 
   Widget _buildContent() {
+    final lang = context.watch<ConfigProvider>().appLanguage;
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -325,7 +332,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
             ),
             const SizedBox(height: 16),
             Text(
-              'Chưa có từ điển nào',
+              AppStrings.get(lang, 'no_dictionaries'),
               style: TextStyle(
                 fontSize: 16,
                 color: widget.isDark ? Colors.grey[400] : Colors.grey[600],
@@ -333,7 +340,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Thêm file .csv vào thư mục dictionary',
+              AppStrings.get(lang, 'no_dictionaries_subtitle'),
               style: TextStyle(
                 fontSize: 14,
                 color: widget.isDark ? Colors.grey[600] : Colors.grey[400],
@@ -354,7 +361,6 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
     );
   }
 }
-
 
 class _DictRow extends StatefulWidget {
   final Map<String, dynamic> dict;
@@ -429,8 +435,9 @@ class _DictRowState extends State<_DictRow> {
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
-                        color:
-                            widget.isDark ? Colors.white : AppColors.lightPrimary,
+                        color: widget.isDark
+                            ? Colors.white
+                            : AppColors.lightPrimary,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),

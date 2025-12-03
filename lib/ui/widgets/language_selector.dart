@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../theme/app_theme.dart';
+import '../theme/config_provider.dart';
+import 'package:provider/provider.dart';
+import '../../utils/app_strings.dart';
 
 class LanguageSelector extends StatefulWidget {
   final String value;
@@ -121,6 +124,7 @@ class _LanguageSelectorState extends State<LanguageSelector> {
   }
 
   Widget _buildLanguageItem(String lang, bool isSelected) {
+    final appLang = context.read<ConfigProvider>().appLanguage;
     final isDisabled = lang == widget.disabledLanguage;
 
     return IgnorePointer(
@@ -152,7 +156,7 @@ class _LanguageSelectorState extends State<LanguageSelector> {
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                lang,
+                _getLocalizedLanguageName(lang, appLang),
                 style: TextStyle(
                   fontSize: 14,
                   color: isDisabled
@@ -183,6 +187,7 @@ class _LanguageSelectorState extends State<LanguageSelector> {
 
   @override
   Widget build(BuildContext context) {
+    final appLang = context.watch<ConfigProvider>().appLanguage;
     return CompositedTransformTarget(
       link: _layerLink,
       child: MouseRegion(
@@ -227,7 +232,7 @@ class _LanguageSelectorState extends State<LanguageSelector> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    widget.value,
+                    _getLocalizedLanguageName(widget.value, appLang),
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
@@ -262,6 +267,19 @@ class _LanguageSelectorState extends State<LanguageSelector> {
         return 'VI';
       default:
         return lang.length >= 2 ? lang.substring(0, 2).toUpperCase() : lang;
+    }
+  }
+
+  String _getLocalizedLanguageName(String langCode, String currentAppLang) {
+    switch (langCode) {
+      case 'Tiếng Anh':
+        return AppStrings.get(currentAppLang, 'lang_en');
+      case 'Tiếng Việt':
+        return AppStrings.get(currentAppLang, 'lang_vi');
+      case 'Tiếng Trung':
+        return AppStrings.get(currentAppLang, 'lang_cn');
+      default:
+        return langCode;
     }
   }
 }

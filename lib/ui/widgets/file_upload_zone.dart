@@ -4,6 +4,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:path/path.dart' as path;
 import '../theme/app_theme.dart';
+import '../theme/config_provider.dart';
+import 'package:provider/provider.dart';
+import '../../utils/app_strings.dart';
 
 class FileUploadZone extends StatefulWidget {
   final bool isDark;
@@ -32,6 +35,7 @@ class _FileUploadZoneState extends State<FileUploadZone> {
 
   @override
   Widget build(BuildContext context) {
+    final lang = context.watch<ConfigProvider>().appLanguage;
     return DropTarget(
       onDragEntered: (details) {
         setState(() => _isDragging = true);
@@ -50,7 +54,7 @@ class _FileUploadZoneState extends State<FileUploadZone> {
             // Optional: Show error for unsupported file type
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: const Text('Chỉ hỗ trợ file .TXT và .EPUB'),
+                content: Text(AppStrings.get(lang, 'unsupported_format_error')),
                 behavior: SnackBarBehavior.floating,
                 backgroundColor: Colors.red,
                 shape: RoundedRectangleBorder(
@@ -119,7 +123,9 @@ class _FileUploadZoneState extends State<FileUploadZone> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    _isDragging ? 'Thả file vào đây' : widget.title,
+                    _isDragging
+                        ? AppStrings.get(lang, 'drop_file_here')
+                        : AppStrings.get(lang, 'drag_drop_file'),
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w500,
@@ -130,7 +136,7 @@ class _FileUploadZoneState extends State<FileUploadZone> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    widget.subtitle,
+                    AppStrings.get(lang, 'supported_formats'),
                     style: TextStyle(
                       fontSize: 12,
                       color: widget.isDark
@@ -162,8 +168,8 @@ class _FileUploadZoneState extends State<FileUploadZone> {
                         borderRadius: BorderRadius.circular(20),
                       ),
                     ),
-                    child: const Text(
-                      'Chọn file',
+                    child: Text(
+                      AppStrings.get(lang, 'choose_file'),
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,

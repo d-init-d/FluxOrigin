@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:path/path.dart' as path;
 import '../theme/app_theme.dart';
 import '../theme/config_provider.dart';
+import '../../utils/app_strings.dart';
 
 class HistoryItem {
   final String fileName;
@@ -28,16 +29,16 @@ class HistoryItem {
     );
   }
 
-  String get formattedDate {
+  String formattedDate(String lang) {
     final now = DateTime.now();
     final diff = now.difference(date);
-    
+
     if (diff.inDays == 0) {
       return '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
     } else if (diff.inDays == 1) {
-      return 'Hôm qua';
+      return AppStrings.get(lang, 'yesterday');
     } else if (diff.inDays < 7) {
-      return '${diff.inDays} ngày trước';
+      return '${diff.inDays} ${AppStrings.get(lang, 'days_ago')}';
     } else {
       return '${date.day}/${date.month}/${date.year}';
     }
@@ -52,7 +53,6 @@ class HistoryScreen extends StatefulWidget {
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
 }
-
 
 class _HistoryScreenState extends State<HistoryScreen> {
   bool _isLoading = true;
@@ -92,15 +92,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
     try {
       final content = await historyFile.readAsString();
       final decoded = jsonDecode(content);
-      
+
       if (decoded is List) {
         final items = decoded
             .map((e) => HistoryItem.fromJson(e as Map<String, dynamic>))
             .toList();
-        
+
         // Sort by newest first
         items.sort((a, b) => b.date.compareTo(a.date));
-        
+
         setState(() {
           _history = items;
           _isLoading = false;
@@ -122,6 +122,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final lang = context.watch<ConfigProvider>().appLanguage;
     return RefreshIndicator(
       onRefresh: _loadHistory,
       child: Container(
@@ -134,17 +135,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Lịch sử dịch thuật',
+                  AppStrings.get(lang, 'history_title'),
                   style: GoogleFonts.merriweather(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
-                    color: widget.isDark ? Colors.white : AppColors.lightPrimary,
+                    color:
+                        widget.isDark ? Colors.white : AppColors.lightPrimary,
                   ),
                 ),
                 IconButton(
                   onPressed: _loadHistory,
                   icon: const FaIcon(FontAwesomeIcons.arrowsRotate, size: 14),
-                  tooltip: 'Làm mới',
+                  tooltip: AppStrings.get(lang, 'refresh_tooltip'),
                   style: IconButton.styleFrom(
                     backgroundColor: widget.isDark
                         ? Colors.white.withValues(alpha: 0.1)
@@ -165,6 +167,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Widget _buildContent() {
+    final lang = context.watch<ConfigProvider>().appLanguage;
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -181,7 +184,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             ),
             const SizedBox(height: 16),
             Text(
-              'Chưa có lịch sử dịch',
+              AppStrings.get(lang, 'no_history'),
               style: TextStyle(
                 fontSize: 16,
                 color: widget.isDark ? Colors.grey[400] : Colors.grey[600],
@@ -189,7 +192,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Các file đã dịch thành công sẽ hiển thị ở đây',
+              AppStrings.get(lang, 'no_history_subtitle'),
               style: TextStyle(
                 fontSize: 14,
                 color: widget.isDark ? Colors.grey[600] : Colors.grey[400],
@@ -210,7 +213,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 }
-
 
 class _HistoryCard extends StatefulWidget {
   final bool isDark;
@@ -251,7 +253,8 @@ class _HistoryCardState extends State<_HistoryCard> {
           boxShadow: _isHovered
               ? [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: widget.isDark ? 0.3 : 0.05),
+                    color: Colors.black
+                        .withValues(alpha: widget.isDark ? 0.3 : 0.05),
                     blurRadius: 8,
                     offset: const Offset(0, 2),
                   ),
@@ -301,7 +304,8 @@ class _HistoryCardState extends State<_HistoryCard> {
 
             // Date (Right)
             Text(
-              widget.item.formattedDate,
+              widget.item
+                  .formattedDate(context.read<ConfigProvider>().appLanguage),
               style: GoogleFonts.inter(
                 fontSize: 13,
                 color: widget.isDark ? Colors.grey[400] : Colors.grey[600],

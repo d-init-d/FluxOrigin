@@ -10,6 +10,7 @@ import '../widgets/language_selector.dart';
 import '../widgets/file_upload_zone.dart';
 import '../../controllers/translation_controller.dart';
 import '../theme/config_provider.dart';
+import '../../utils/app_strings.dart';
 
 enum TranslationState { idle, fileSelected, processing, finished }
 
@@ -119,9 +120,10 @@ class _TranslateScreenState extends State<TranslateScreen> {
     if (!configProvider.isConfigured) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text(
-            'Vui lòng cấu hình thư mục dự án trước!',
-            style: TextStyle(color: AppColors.lightPrimary),
+          content: Text(
+            AppStrings.get(context.read<ConfigProvider>().appLanguage,
+                'please_configure_project'),
+            style: const TextStyle(color: AppColors.lightPrimary),
           ),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
@@ -141,7 +143,9 @@ class _TranslateScreenState extends State<TranslateScreen> {
     setState(() {
       _currentState = TranslationState.processing;
       _progress = resume ? _existingProgressPercent : 0.0;
-      _statusMessage = resume ? "Đang tiếp tục dịch..." : "Đang khởi tạo...";
+      _statusMessage = resume
+          ? AppStrings.get(configProvider.appLanguage, 'resuming')
+          : AppStrings.get(configProvider.appLanguage, 'initializing');
     });
 
     // Switch ON = Local Mode (Offline) -> allowInternet: false
@@ -191,12 +195,13 @@ class _TranslateScreenState extends State<TranslateScreen> {
         await _checkExistingProgress();
         setState(() {
           _currentState = TranslationState.fileSelected; // Go back to selected
-          _statusMessage = "Lỗi: $e";
+          _statusMessage =
+              "${AppStrings.get(context.read<ConfigProvider>().appLanguage, 'error_prefix')}$e";
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Lỗi: $e',
+              "${AppStrings.get(context.read<ConfigProvider>().appLanguage, 'error_prefix')}$e",
               style: const TextStyle(color: AppColors.lightPrimary),
             ),
             behavior: SnackBarBehavior.floating,
@@ -217,7 +222,8 @@ class _TranslateScreenState extends State<TranslateScreen> {
   void _requestPause() {
     _controller.requestPause();
     setState(() {
-      _statusMessage = "Đang tạm dừng sau đoạn hiện tại...";
+      _statusMessage =
+          AppStrings.get(context.read<ConfigProvider>().appLanguage, 'pausing');
     });
   }
 
@@ -229,7 +235,8 @@ class _TranslateScreenState extends State<TranslateScreen> {
     final String defaultName = "${fileName}_translated.txt";
 
     String? outputFile = await FilePicker.platform.saveFile(
-      dialogTitle: 'Lưu kết quả dịch',
+      dialogTitle: AppStrings.get(context.read<ConfigProvider>().appLanguage,
+          'save_result_dialog_title'),
       fileName: defaultName,
       type: FileType.custom,
       allowedExtensions: ['txt'], // Output is always TXT
@@ -244,7 +251,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                'Đã lưu file tại: $outputFile',
+                '${AppStrings.get(context.read<ConfigProvider>().appLanguage, 'file_saved_at')}$outputFile',
                 style: const TextStyle(color: AppColors.lightPrimary),
               ),
               behavior: SnackBarBehavior.floating,
@@ -264,7 +271,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                'Lỗi khi lưu file: $e',
+                '${AppStrings.get(context.read<ConfigProvider>().appLanguage, 'error_saving_file')}$e',
                 style: const TextStyle(color: AppColors.lightPrimary),
               ),
               behavior: SnackBarBehavior.floating,
@@ -375,6 +382,8 @@ class _TranslateScreenState extends State<TranslateScreen> {
         ? path.basename(_selectedFilePath!)
         : "Unknown File";
 
+    final lang = context.watch<ConfigProvider>().appLanguage;
+
     final int progressPercent = (_existingProgressPercent * 100).toInt();
 
     return Center(
@@ -453,7 +462,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
                         ),
                         if (_hasExistingProgress)
                           Text(
-                            'Tiến độ: $progressPercent%',
+                            '${AppStrings.get(lang, 'progress')}$progressPercent%',
                             style: TextStyle(
                               fontSize: 12,
                               color: widget.isDark
@@ -473,7 +482,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
                         size: 14,
                         color: Colors.red[400],
                       ),
-                      tooltip: 'Xóa tiến độ và bắt đầu lại',
+                      tooltip: AppStrings.get(lang, 'delete_progress_tooltip'),
                       style: IconButton.styleFrom(
                         backgroundColor: widget.isDark
                             ? Colors.red.withValues(alpha: 0.1)
@@ -512,8 +521,8 @@ class _TranslateScreenState extends State<TranslateScreen> {
                     : const SizedBox.shrink(),
                 label: Text(
                   _hasExistingProgress
-                      ? 'TIẾP TỤC DỊCH - $progressPercent%'
-                      : 'BẮT ĐẦU DỊCH',
+                      ? '${AppStrings.get(lang, 'continue_translation')} - $progressPercent%'
+                      : AppStrings.get(lang, 'start_translation'),
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -542,7 +551,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
                   _startTranslation(resume: false);
                 },
                 child: Text(
-                  'Bắt đầu lại từ đầu',
+                  AppStrings.get(lang, 'restart_from_beginning'),
                   style: TextStyle(
                     fontSize: 12,
                     color: widget.isDark ? Colors.grey[400] : Colors.grey[600],
@@ -557,6 +566,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
   }
 
   Widget _buildProcessingView() {
+    final lang = context.watch<ConfigProvider>().appLanguage;
     return Center(
       child: Container(
         width: 500,
@@ -572,7 +582,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              "Đang xử lý...",
+              AppStrings.get(lang, 'processing'),
               style: TextStyle(
                 fontFamily: 'Merriweather',
                 fontSize: 18,
@@ -616,7 +626,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
                 ElevatedButton.icon(
                   onPressed: _requestPause,
                   icon: const FaIcon(FontAwesomeIcons.pause, size: 14),
-                  label: const Text("Tạm dừng"),
+                  label: Text(AppStrings.get(lang, 'pause')),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: widget.isDark
                         ? Colors.orange.withValues(alpha: 0.2)
@@ -645,7 +655,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 24, vertical: 12),
                   ),
-                  child: const Text("Hủy bỏ"),
+                  child: Text(AppStrings.get(lang, 'cancel_action')),
                 ),
               ],
             ),
@@ -656,6 +666,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
   }
 
   Widget _buildFinishedView() {
+    final lang = context.watch<ConfigProvider>().appLanguage;
     return Center(
       child: Container(
         width: 500,
@@ -687,7 +698,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
             ),
             const SizedBox(height: 24),
             Text(
-              "Dịch thành công!",
+              AppStrings.get(lang, 'translation_success'),
               style: TextStyle(
                 fontFamily: 'Merriweather',
                 fontSize: 20,
@@ -702,8 +713,8 @@ class _TranslateScreenState extends State<TranslateScreen> {
               child: ElevatedButton.icon(
                 onPressed: _saveResult,
                 icon: const FaIcon(FontAwesomeIcons.floppyDisk, size: 18),
-                label: const Text(
-                  'LƯU KẾT QUẢ',
+                label: Text(
+                  AppStrings.get(lang, 'save_result'),
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -729,7 +740,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
                     const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),
               child: Text(
-                "Dịch file khác",
+                AppStrings.get(lang, 'translate_another'),
                 style: TextStyle(
                   color: widget.isDark ? Colors.grey[400] : Colors.grey[600],
                 ),
@@ -742,6 +753,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
   }
 
   Widget _buildSpecializedMode() {
+    final lang = context.watch<ConfigProvider>().appLanguage;
     return Column(
       children: [
         // Dictionary header with toggle
@@ -757,7 +769,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'Từ điển cục bộ',
+                  AppStrings.get(lang, 'local_dictionary'),
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -825,7 +837,8 @@ class _TranslateScreenState extends State<TranslateScreen> {
                               Text(
                                 _selectedDictionaryPath != null
                                     ? path.basename(_selectedDictionaryPath!)
-                                    : 'Tải lên từ điển của bạn',
+                                    : AppStrings.get(
+                                        lang, 'upload_dictionary_placeholder'),
                                 style: TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w500,
@@ -838,7 +851,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
                               ),
                               Text(
                                 _selectedDictionaryPath != null
-                                    ? 'Đã chọn'
+                                    ? AppStrings.get(lang, 'selected')
                                     : '.CSV',
                                 style: TextStyle(
                                   fontSize: 12,
@@ -871,7 +884,8 @@ class _TranslateScreenState extends State<TranslateScreen> {
                               if (mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
-                                    content: Text('Lỗi chọn file: $e'),
+                                    content: Text(
+                                        '${AppStrings.get(lang, 'error_picking_file')}$e'),
                                     backgroundColor: Colors.red,
                                   ),
                                 );
@@ -890,8 +904,8 @@ class _TranslateScreenState extends State<TranslateScreen> {
                           ),
                           child: Text(
                             _selectedDictionaryPath != null
-                                ? 'Thay đổi'
-                                : 'Chọn file',
+                                ? AppStrings.get(lang, 'change_file')
+                                : AppStrings.get(lang, 'choose_file'),
                             style: TextStyle(
                               fontSize: 12,
                               color: widget.isDark
@@ -905,7 +919,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
                     const SizedBox(height: 8),
                     // Hint text for Local Mode
                     Text(
-                      'Nếu không tải lên từ điển, mặc định AI sẽ tự tạo mới từ điển cục bộ (không dùng Internet).',
+                      AppStrings.get(lang, 'local_mode_hint'),
                       style: TextStyle(
                         fontSize: 11,
                         fontStyle: FontStyle.italic,
@@ -944,7 +958,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
-                            'AI Tự động (Online)',
+                            AppStrings.get(lang, 'ai_auto_mode'),
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
@@ -954,7 +968,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
                             ),
                           ),
                           Text(
-                            'Hệ thống có quyền truy cập internet để hoàn thành từ điển.',
+                            AppStrings.get(lang, 'ai_auto_hint'),
                             style: TextStyle(
                               fontSize: 12,
                               color: widget.isDark
