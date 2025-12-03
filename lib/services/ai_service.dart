@@ -1,9 +1,112 @@
 import 'dart:convert';
 import 'package:csv/csv.dart';
 import 'package:http/http.dart' as http;
+import 'dev_logger.dart';
+
+enum AIProviderType { ollama, lmStudio }
 
 class AIService {
-  static const String _baseUrl = 'http://127.0.0.1:11434/api/chat';
+  static const String _defaultBaseUrl = 'http://localhost:11434';
+  String _baseUrl = _defaultBaseUrl;
+  AIProviderType _providerType = AIProviderType.ollama;
+  final DevLogger _logger = DevLogger();
+
+  /// Set the base URL for AI API
+  void setBaseUrl(String url) {
+    // Normalize URL: remove trailing slash if present
+    String normalizedUrl = url.trim();
+    if (normalizedUrl.endsWith('/')) {
+      normalizedUrl = normalizedUrl.substring(0, normalizedUrl.length - 1);
+    }
+    _baseUrl = normalizedUrl;
+    _logger.info('AIService', 'Base URL set to: $normalizedUrl');
+  }
+
+  /// Set the AI provider type
+  void setProviderType(AIProviderType type) {
+    _providerType = type;
+    _logger.info('AIService',
+        'Provider type set to: ${type == AIProviderType.ollama ? 'Ollama' : 'LM Studio'}');
+  }
+
+  /// Get the chat API endpoint based on provider
+  String get _chatUrl {
+    if (_providerType == AIProviderType.lmStudio) {
+      return '$_baseUrl/v1/chat/completions';
+    }
+    return '$_baseUrl/api/chat';
+  }
+
+  /// Get the tags/models API endpoint based on provider
+  String get _tagsUrl {
+    if (_providerType == AIProviderType.lmStudio) {
+      return '$_baseUrl/v1/models';
+    }
+    return '$_baseUrl/api/tags';
+  }
+
+  /// Get the pull API endpoint (Ollama only)
+  String get _pullUrl => '$_baseUrl/api/pull';
+
+  /// Get the delete API endpoint (Ollama only)
+  String get _deleteUrl => '$_baseUrl/api/delete';
+
+  /// Check connection to AI server
+  /// Returns a tuple of (success, message)
+  Future<(bool, String)> checkConnection(
+      {String? url, AIProviderType? providerType}) async {
+    final testUrl = url ?? _baseUrl;
+    final provider = providerType ?? _providerType;
+    String normalizedUrl = testUrl.trim();
+    if (normalizedUrl.endsWith('/')) {
+      normalizedUrl = normalizedUrl.substring(0, normalizedUrl.length - 1);
+    }
+
+    final modelsEndpoint = provider == AIProviderType.lmStudio
+        ? '$normalizedUrl/v1/models'
+        : '$normalizedUrl/api/tags';
+
+    try {
+      final response = await http
+          .get(Uri.parse(modelsEndpoint))
+          .timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(response.body);
+
+        if (provider == AIProviderType.lmStudio) {
+          // LM Studio returns { data: [...] }
+          final List<dynamic> models = data['data'] ?? [];
+          return (
+            true,
+            'Kết nối LM Studio thành công! Đã tìm thấy ${models.length} model.'
+          );
+        } else {
+          // Ollama returns { models: [...] }
+          final List<dynamic> models = data['models'] ?? [];
+          return (
+            true,
+            'Kết nối Ollama thành công! Đã tìm thấy ${models.length} model.'
+          );
+        }
+      } else {
+        return (false, 'Lỗi: Server trả về mã ${response.statusCode}');
+      }
+    } on http.ClientException catch (e) {
+      return (false, 'Không thể kết nối: ${e.message}');
+    } catch (e) {
+      if (e.toString().contains('TimeoutException')) {
+        return (
+          false,
+          'Hết thời gian chờ. Kiểm tra lại URL hoặc server có đang chạy không.'
+        );
+      }
+      return (
+        false,
+        'Lỗi kết nối: Không thể kết nối tới server. Hãy đảm bảo server đang chạy.'
+      );
+    }
+  }
 
   static const Map<String, String> _prompts = {
     "KIEMHIEP":
@@ -239,7 +342,7 @@ CRITICAL OUTPUT RULES:
       contextInstruction = """
 ### CONTEXT FROM PREVIOUS SECTION:
 The following is the ending of the previous translated section for continuity reference:
-"${previousContext}"
+"$previousContext"
 
 Use this context to maintain narrative flow, consistent pronouns, and proper subject references. Do NOT re-translate the context - only translate the new text below.
 
@@ -419,8 +522,8 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
       clean = clean.replaceAll(RegExp(r'^\s*[,.:;]+\s*', multiLine: true), '');
 
       // Remove trailing orphan punctuation
-      clean = clean.replaceAll(
-          RegExp(r'\s+[,.:;]+\s*' r'$', multiLine: true), '');
+      clean =
+          clean.replaceAll(RegExp(r'\s+[,.:;]+\s*' r'$', multiLine: true), '');
     }
 
     // Final cleanup: Fix double/multiple spaces
@@ -434,57 +537,143 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
       {required String modelName,
       required List<Map<String, String>> messages,
       Map<String, dynamic>? options}) async {
+    final stopwatch = Stopwatch()..start();
+
     try {
-      final String finalModel = modelName.toLowerCase().replaceAll('-', ':');
+      // Model name is now directly from provider, no conversion needed
+      final String finalModel = modelName.trim();
 
-      // LAYER 1: Strict Model Parameters to prevent hallucinations
-      final Map<String, dynamic> defaultOptions = {
-        "temperature":
-            0.2, // Low creativity, high accuracy - kills hallucinations
-        "num_predict": 2048, // Prevents cut-off sentences
-        "repeat_penalty": 1.2, // Prevents loops like "rừngispereming" or ",,,"
-      };
+      if (finalModel.isEmpty) {
+        _logger.error(
+            'AIService', 'chatCompletion failed: Model name is required');
+        throw Exception("Model name is required");
+      }
 
-      // Merge caller options with defaults (caller options take precedence)
-      final Map<String, dynamic> mergedOptions = {
-        ...defaultOptions,
-        if (options != null) ...options,
-      };
+      Map<String, dynamic> body;
 
-      final body = {
-        "model": finalModel,
-        "messages": messages,
-        "stream": false,
-        "options": mergedOptions,
-      };
+      if (_providerType == AIProviderType.lmStudio) {
+        // LM Studio uses OpenAI API format
+        body = {
+          "model": finalModel,
+          "messages": messages,
+          "stream": false,
+          "temperature": options?['temperature'] ?? 0.2,
+          "max_tokens": options?['num_predict'] ?? 2048,
+        };
+      } else {
+        // Ollama API format
+        // LAYER 1: Strict Model Parameters to prevent hallucinations
+        final Map<String, dynamic> defaultOptions = {
+          "temperature":
+              0.2, // Low creativity, high accuracy - kills hallucinations
+          "num_predict": 2048, // Prevents cut-off sentences
+          "repeat_penalty":
+              1.2, // Prevents loops like "rừngispereming" or ",,,"
+        };
+
+        // Merge caller options with defaults (caller options take precedence)
+        final Map<String, dynamic> mergedOptions = {
+          ...defaultOptions,
+          if (options != null) ...options,
+        };
+
+        body = {
+          "model": finalModel,
+          "messages": messages,
+          "stream": false,
+          "options": mergedOptions,
+        };
+      }
+
+      // Log request
+      final lastMessage =
+          messages.isNotEmpty ? messages.last['content'] ?? '' : '';
+      final truncatedContent = lastMessage.length > 200
+          ? '${lastMessage.substring(0, 200)}...'
+          : lastMessage;
+      _logger.request(
+        'AIService',
+        'POST $_chatUrl | Model: $finalModel | Messages: ${messages.length}',
+        details:
+            'Last message (truncated): $truncatedContent\n\nBody: ${jsonEncode(body)}',
+      );
 
       final response = await http.post(
-        Uri.parse(_baseUrl),
+        Uri.parse(_chatUrl),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode(body),
       );
 
+      stopwatch.stop();
+
       if (response.statusCode == 200) {
         final json = jsonDecode(utf8.decode(response.bodyBytes));
-        return json['message']['content'] ?? "";
+
+        // Parse response based on provider
+        String content;
+        if (_providerType == AIProviderType.lmStudio) {
+          // OpenAI format: { choices: [{ message: { content: "..." } }] }
+          final choices = json['choices'] as List?;
+          if (choices != null && choices.isNotEmpty) {
+            content = choices[0]['message']['content'] ?? "";
+          } else {
+            content = "";
+          }
+        } else {
+          // Ollama format: { message: { content: "..." } }
+          content = json['message']['content'] ?? "";
+        }
+
+        final truncatedResponse =
+            content.length > 300 ? '${content.substring(0, 300)}...' : content;
+
+        _logger.response(
+          'AIService',
+          'OK 200 | ${stopwatch.elapsedMilliseconds}ms | ${content.length} chars',
+          details: 'Response (truncated): $truncatedResponse',
+        );
+
+        return content;
       } else {
+        _logger.error(
+          'AIService',
+          'API Error ${response.statusCode} | ${stopwatch.elapsedMilliseconds}ms',
+          details: response.body,
+        );
+        final providerName =
+            _providerType == AIProviderType.lmStudio ? 'LM Studio' : 'Ollama';
         throw Exception(
-            "Ollama API Error: ${response.statusCode} - ${response.body}");
+            "$providerName API Error: ${response.statusCode} - ${response.body}");
       }
     } catch (e) {
-      throw Exception("Failed to connect to Ollama: $e");
+      stopwatch.stop();
+      _logger.error(
+        'AIService',
+        'chatCompletion failed | ${stopwatch.elapsedMilliseconds}ms',
+        details: e.toString(),
+      );
+      final providerName =
+          _providerType == AIProviderType.lmStudio ? 'LM Studio' : 'Ollama';
+      throw Exception("Failed to connect to $providerName: $e");
     }
   }
 
   Future<List<String>> getInstalledModels() async {
     try {
-      final response =
-          await http.get(Uri.parse('http://127.0.0.1:11434/api/tags'));
+      final response = await http.get(Uri.parse(_tagsUrl));
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data = jsonDecode(response.body);
-        final List<dynamic> models = data['models'];
-        return models.map<String>((m) => m['name'] as String).toList();
+
+        if (_providerType == AIProviderType.lmStudio) {
+          // LM Studio returns { data: [{ id: "model-name", ... }] }
+          final List<dynamic> models = data['data'] ?? [];
+          return models.map<String>((m) => m['id'] as String).toList();
+        } else {
+          // Ollama returns { models: [{ name: "model-name", ... }] }
+          final List<dynamic> models = data['models'] ?? [];
+          return models.map<String>((m) => m['name'] as String).toList();
+        }
       } else {
         return [];
       }
@@ -493,11 +682,19 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
     }
   }
 
+  /// Check if current provider supports model management (pull/delete)
+  bool get supportsModelManagement => _providerType == AIProviderType.ollama;
+
   Future<bool> pullModel(
       String modelName, Function(double progress) onProgress) async {
+    if (!supportsModelManagement) {
+      _logger.warning('AIService',
+          'Model management not supported for LM Studio. Please load models in LM Studio app.');
+      return false;
+    }
+
     try {
-      final request =
-          http.Request('POST', Uri.parse('http://127.0.0.1:11434/api/pull'));
+      final request = http.Request('POST', Uri.parse(_pullUrl));
       request.body = jsonEncode({"name": modelName, "stream": true});
       request.headers.addAll({"Content-Type": "application/json"});
 
@@ -536,7 +733,9 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
   /// Preload a model into memory silently (fire-and-forget)
   Future<void> preloadModel(String modelName) async {
     try {
-      final String finalModel = modelName.toLowerCase().replaceAll('-', ':');
+      // Model name is now directly from provider, no conversion needed
+      final String finalModel = modelName.trim();
+      if (finalModel.isEmpty) return;
 
       final body = {
         "model": finalModel,
@@ -544,7 +743,7 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
       };
 
       await http.post(
-        Uri.parse(_baseUrl),
+        Uri.parse(_chatUrl),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode(body),
       );
@@ -553,11 +752,17 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
     }
   }
 
-  /// Delete a model from Ollama
+  /// Delete a model from Ollama (not supported for LM Studio)
   Future<bool> deleteModel(String modelName) async {
+    if (!supportsModelManagement) {
+      _logger.warning('AIService',
+          'Model management not supported for LM Studio. Please manage models in LM Studio app.');
+      return false;
+    }
+
     try {
       final response = await http.delete(
-        Uri.parse('http://127.0.0.1:11434/api/delete'),
+        Uri.parse(_deleteUrl),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"name": modelName}),
       );

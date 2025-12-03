@@ -34,8 +34,8 @@ class Sidebar extends StatelessWidget {
           // App Branding Header
           Padding(
             // Sửa thành: chỉ padding Trên, Dưới và Trái (16px bằng với menu)
-            padding: const EdgeInsets.only(top: 24.0, bottom: 24.0, left: 16.0), 
-            child: Align( 
+            padding: const EdgeInsets.only(top: 24.0, bottom: 24.0, left: 16.0),
+            child: Align(
               alignment: Alignment.centerLeft, // Bắt buộc căn trái
               child: RichText(
                 text: TextSpan(
@@ -90,7 +90,7 @@ class Sidebar extends StatelessWidget {
             ),
           ),
 
-          // Settings at bottom
+          // Settings and Dev Logs at bottom
           Container(
             padding: const EdgeInsets.only(top: 16),
             decoration: BoxDecoration(
@@ -105,12 +105,23 @@ class Sidebar extends StatelessWidget {
             ),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: SidebarItem(
-                icon: FontAwesomeIcons.gear,
-                label: 'Cài đặt',
-                isActive: selectedIndex == 3,
-                onTap: () => onItemTap(3),
-                isDark: isDark,
+              child: Column(
+                children: [
+                  SidebarItem(
+                    icon: FontAwesomeIcons.gear,
+                    label: 'Cài đặt',
+                    isActive: selectedIndex == 3,
+                    onTap: () => onItemTap(3),
+                    isDark: isDark,
+                  ),
+                  SidebarItem(
+                    icon: FontAwesomeIcons.bug,
+                    label: 'Dev Logs',
+                    isActive: selectedIndex == 4,
+                    onTap: () => onItemTap(4),
+                    isDark: isDark,
+                  ),
+                ],
               ),
             ),
           ),

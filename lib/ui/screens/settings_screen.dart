@@ -33,6 +33,11 @@ class _SettingsScreenState extends State<SettingsScreen>
   ];
 
   final AIService _aiService = AIService();
+  final TextEditingController _ollamaUrlController = TextEditingController();
+  final TextEditingController _lmStudioUrlController = TextEditingController();
+  bool _isCheckingConnection = false;
+  String? _connectionStatus;
+  bool? _isConnectionSuccess;
   List<String> _installedModels = [];
   final Map<String, double?> _downloadProgress = {};
   bool _isLoadingModels = false;
@@ -41,12 +46,37 @@ class _SettingsScreenState extends State<SettingsScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Load URLs from config after widget is built
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initAIConfig();
+    });
+  }
+
+  void _initAIConfig() {
+    final config = context.read<ConfigProvider>();
+    _ollamaUrlController.text = config.ollamaUrl;
+    _lmStudioUrlController.text = config.lmStudioUrl;
+
+    // Set AIService based on current provider
+    _updateAIServiceConfig(config);
     _checkInstalledModels();
+  }
+
+  void _updateAIServiceConfig(ConfigProvider config) {
+    if (config.aiProvider == AIProvider.lmStudio) {
+      _aiService.setBaseUrl(config.lmStudioUrl);
+      _aiService.setProviderType(AIProviderType.lmStudio);
+    } else {
+      _aiService.setBaseUrl(config.ollamaUrl);
+      _aiService.setProviderType(AIProviderType.ollama);
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _ollamaUrlController.dispose();
+    _lmStudioUrlController.dispose();
     super.dispose();
   }
 
@@ -55,6 +85,69 @@ class _SettingsScreenState extends State<SettingsScreen>
     if (state == AppLifecycleState.resumed) {
       _checkInstalledModels();
     }
+  }
+
+  Future<void> _checkAIConnection(AIProvider provider) async {
+    if (!mounted) return;
+
+    setState(() {
+      _isCheckingConnection = true;
+      _connectionStatus = null;
+      _isConnectionSuccess = null;
+    });
+
+    final url = provider == AIProvider.lmStudio
+        ? _lmStudioUrlController.text.trim()
+        : _ollamaUrlController.text.trim();
+
+    final providerType = provider == AIProvider.lmStudio
+        ? AIProviderType.lmStudio
+        : AIProviderType.ollama;
+
+    final (success, message) =
+        await _aiService.checkConnection(url: url, providerType: providerType);
+
+    if (mounted) {
+      setState(() {
+        _isCheckingConnection = false;
+        _connectionStatus = message;
+        _isConnectionSuccess = success;
+      });
+
+      if (success) {
+        final config = context.read<ConfigProvider>();
+        // Save URL to config
+        if (provider == AIProvider.lmStudio) {
+          await config.setLmStudioUrl(url);
+        } else {
+          await config.setOllamaUrl(url);
+        }
+
+        // If this is the active provider, update AIService and refresh models
+        if (config.aiProvider == provider) {
+          _updateAIServiceConfig(config);
+          _checkInstalledModels();
+        }
+      }
+    }
+  }
+
+  Future<void> _switchAIProvider(AIProvider provider) async {
+    final config = context.read<ConfigProvider>();
+    await config.setAIProvider(provider);
+
+    // Reset connection status when switching
+    setState(() {
+      _connectionStatus = null;
+      _isConnectionSuccess = null;
+      _installedModels = [];
+    });
+
+    // Update AIService config
+    _updateAIServiceConfig(config);
+
+    // Check models for the new provider
+    _checkInstalledModels();
   }
 
   Future<void> _checkInstalledModels() async {
@@ -70,6 +163,12 @@ class _SettingsScreenState extends State<SettingsScreen>
         setState(() {
           _installedModels = models;
         });
+
+        // Auto-select first model if current selection is invalid
+        final config = context.read<ConfigProvider>();
+        if (models.isNotEmpty && !models.contains(config.selectedModel)) {
+          config.setSelectedModel(models.first);
+        }
       }
     } catch (e) {
       debugPrint('Error checking installed models: $e');
@@ -81,6 +180,79 @@ class _SettingsScreenState extends State<SettingsScreen>
         });
       }
     }
+  }
+
+  Widget _buildProviderButton({
+    required String label,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? (widget.isDark
+                      ? AppColors.lightPrimary.withValues(alpha: 0.2)
+                      : AppColors.lightPrimary.withValues(alpha: 0.1))
+                  : (widget.isDark
+                      ? Colors.black.withValues(alpha: 0.2)
+                      : Colors.grey[100]),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: isSelected
+                    ? (widget.isDark
+                        ? AppColors.lightPrimary
+                        : AppColors.lightPrimary)
+                    : (widget.isDark
+                        ? const Color(0xFF444444)
+                        : Colors.grey[300]!),
+                width: isSelected ? 2 : 1,
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                FaIcon(
+                  icon,
+                  size: 16,
+                  color: isSelected
+                      ? (widget.isDark ? Colors.white : AppColors.lightPrimary)
+                      : (widget.isDark ? Colors.grey[400] : Colors.grey[600]),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.normal,
+                    color: isSelected
+                        ? (widget.isDark
+                            ? Colors.white
+                            : AppColors.lightPrimary)
+                        : (widget.isDark ? Colors.grey[400] : Colors.grey[600]),
+                  ),
+                ),
+                if (isSelected) ...[
+                  const SizedBox(width: 8),
+                  FaIcon(
+                    FontAwesomeIcons.circleCheck,
+                    size: 14,
+                    color: widget.isDark ? Colors.green[400] : Colors.green,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   String _getOllamaModelName(String uiName) {
@@ -233,6 +405,300 @@ class _SettingsScreenState extends State<SettingsScreen>
                 isLoading: _isLoadingModels,
               ),
               const SizedBox(height: 16),
+
+              // AI Provider Selection
+              Container(
+                decoration: BoxDecoration(
+                  color: widget.isDark ? AppColors.darkSurface : Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: widget.isDark
+                        ? AppColors.darkBorder
+                        : AppColors.lightBorder,
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'AI Provider',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: widget.isDark
+                              ? Colors.grey[200]
+                              : AppColors.lightPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Chọn nguồn AI để sử dụng cho dịch thuật',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: widget.isDark
+                              ? Colors.grey[500]
+                              : AppColors.lightPrimary.withValues(alpha: 0.6),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Consumer<ConfigProvider>(
+                        builder: (context, config, _) => Row(
+                          children: [
+                            _buildProviderButton(
+                              label: 'Ollama',
+                              icon: FontAwesomeIcons.server,
+                              isSelected:
+                                  config.aiProvider == AIProvider.ollama,
+                              onTap: () => _switchAIProvider(AIProvider.ollama),
+                            ),
+                            const SizedBox(width: 12),
+                            _buildProviderButton(
+                              label: 'LM Studio',
+                              icon: FontAwesomeIcons.desktop,
+                              isSelected:
+                                  config.aiProvider == AIProvider.lmStudio,
+                              onTap: () =>
+                                  _switchAIProvider(AIProvider.lmStudio),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // AI URL Configuration - Shows based on selected provider
+              Consumer<ConfigProvider>(
+                builder: (context, config, _) => Container(
+                  decoration: BoxDecoration(
+                    color: widget.isDark ? AppColors.darkSurface : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: widget.isDark
+                          ? AppColors.darkBorder
+                          : AppColors.lightBorder,
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          config.aiProvider == AIProvider.lmStudio
+                              ? 'URL LM Studio Server'
+                              : 'URL Ollama Server',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: widget.isDark
+                                ? Colors.grey[200]
+                                : AppColors.lightPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          config.aiProvider == AIProvider.lmStudio
+                              ? 'Địa chỉ kết nối tới LM Studio (mặc định: http://localhost:1234)'
+                              : 'Địa chỉ kết nối tới Ollama (mặc định: http://localhost:11434)',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: widget.isDark
+                                ? Colors.grey[500]
+                                : AppColors.lightPrimary.withValues(alpha: 0.6),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller:
+                                    config.aiProvider == AIProvider.lmStudio
+                                        ? _lmStudioUrlController
+                                        : _ollamaUrlController,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: widget.isDark
+                                      ? Colors.grey[200]
+                                      : AppColors.lightPrimary,
+                                ),
+                                decoration: InputDecoration(
+                                  hintText:
+                                      config.aiProvider == AIProvider.lmStudio
+                                          ? 'http://localhost:1234'
+                                          : 'http://localhost:11434',
+                                  hintStyle: TextStyle(
+                                    color: widget.isDark
+                                        ? Colors.grey[600]
+                                        : Colors.grey[400],
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 10),
+                                  filled: true,
+                                  fillColor: widget.isDark
+                                      ? Colors.black.withValues(alpha: 0.2)
+                                      : AppColors.lightPaper,
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(6),
+                                    borderSide: BorderSide(
+                                      color: widget.isDark
+                                          ? const Color(0xFF444444)
+                                          : AppColors.lightBorder,
+                                    ),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(6),
+                                    borderSide: BorderSide(
+                                      color: widget.isDark
+                                          ? const Color(0xFF444444)
+                                          : AppColors.lightBorder,
+                                    ),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(6),
+                                    borderSide: BorderSide(
+                                      color: widget.isDark
+                                          ? Colors.white.withValues(alpha: 0.3)
+                                          : AppColors.lightPrimary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            ElevatedButton.icon(
+                              onPressed: _isCheckingConnection
+                                  ? null
+                                  : () => _checkAIConnection(config.aiProvider),
+                              icon: _isCheckingConnection
+                                  ? SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: widget.isDark
+                                            ? Colors.white
+                                            : AppColors.lightPrimary,
+                                      ),
+                                    )
+                                  : FaIcon(
+                                      FontAwesomeIcons.plug,
+                                      size: 14,
+                                      color: widget.isDark
+                                          ? Colors.white
+                                          : Colors.white,
+                                    ),
+                              label: Text(
+                                _isCheckingConnection
+                                    ? 'Đang kiểm tra...'
+                                    : 'Kiểm tra kết nối',
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: widget.isDark
+                                    ? const Color(0xFF4CAF50)
+                                    : AppColors.lightPrimary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_connectionStatus != null) ...[
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: _isConnectionSuccess == true
+                                  ? Colors.green.withValues(alpha: 0.1)
+                                  : Colors.red.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: _isConnectionSuccess == true
+                                    ? Colors.green.withValues(alpha: 0.3)
+                                    : Colors.red.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                FaIcon(
+                                  _isConnectionSuccess == true
+                                      ? FontAwesomeIcons.circleCheck
+                                      : FontAwesomeIcons.circleXmark,
+                                  size: 14,
+                                  color: _isConnectionSuccess == true
+                                      ? Colors.green
+                                      : Colors.red,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _connectionStatus!,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: _isConnectionSuccess == true
+                                          ? Colors.green
+                                          : Colors.red,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        // Note for LM Studio users
+                        if (config.aiProvider == AIProvider.lmStudio) ...[
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: Colors.blue.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                FaIcon(
+                                  FontAwesomeIcons.circleInfo,
+                                  size: 14,
+                                  color: Colors.blue,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'LM Studio: Hãy đảm bảo đã bật Local Server trong LM Studio và đã load model trước khi sử dụng.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.blue[700],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Model Selection - Show installed models
               Container(
                 decoration: BoxDecoration(
                   color: widget.isDark ? AppColors.darkSurface : Colors.white,
@@ -245,17 +711,22 @@ class _SettingsScreenState extends State<SettingsScreen>
                 ),
                 child: _SettingRow(
                   title: 'Mô hình dịch thuật',
-                  subtitle: 'Chọn mô hình ngôn ngữ chính',
+                  subtitle: _installedModels.isEmpty
+                      ? 'Chưa có model nào. Hãy kiểm tra kết nối Ollama.'
+                      : 'Chọn từ ${_installedModels.length} model đã cài đặt',
                   isDark: widget.isDark,
                   trailing: MouseRegion(
                     cursor: SystemMouseCursors.click,
                     child: GestureDetector(
-                      onTap: () => setState(
-                          () => _isModelDropdownOpen = !_isModelDropdownOpen),
+                      onTap: _installedModels.isEmpty
+                          ? null
+                          : () => setState(() =>
+                              _isModelDropdownOpen = !_isModelDropdownOpen),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 16, vertical: 8),
-                        constraints: const BoxConstraints(minWidth: 140),
+                        constraints:
+                            const BoxConstraints(minWidth: 140, maxWidth: 250),
                         decoration: BoxDecoration(
                           color: widget.isDark
                               ? Colors.black.withValues(alpha: 0.2)
@@ -270,13 +741,22 @@ class _SettingsScreenState extends State<SettingsScreen>
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(
-                              context.watch<ConfigProvider>().selectedModel,
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: widget.isDark
-                                    ? Colors.grey[300]
-                                    : AppColors.lightPrimary,
+                            Flexible(
+                              child: Text(
+                                _installedModels.isEmpty
+                                    ? 'Không có model'
+                                    : context
+                                        .watch<ConfigProvider>()
+                                        .selectedModel,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: _installedModels.isEmpty
+                                      ? Colors.grey
+                                      : (widget.isDark
+                                          ? Colors.grey[300]
+                                          : AppColors.lightPrimary),
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -297,9 +777,10 @@ class _SettingsScreenState extends State<SettingsScreen>
                 ),
               ),
 
-              if (_isModelDropdownOpen)
+              if (_isModelDropdownOpen && _installedModels.isNotEmpty)
                 Container(
                   margin: const EdgeInsets.only(top: 8),
+                  constraints: const BoxConstraints(maxHeight: 300),
                   decoration: BoxDecoration(
                     color: widget.isDark ? AppColors.darkSurface : Colors.white,
                     borderRadius: BorderRadius.circular(8),
@@ -309,101 +790,70 @@ class _SettingsScreenState extends State<SettingsScreen>
                           : AppColors.lightBorder,
                     ),
                   ),
-                  child: Column(
-                    children: _models.map((model) {
-                      final configProvider = context.read<ConfigProvider>();
-                      final isSelected = model == configProvider.selectedModel;
-                      final ollamaName = _getOllamaModelName(model);
-                      final isInstalled = _installedModels.contains(ollamaName);
-                      final isDownloading = _downloadProgress[model] != null;
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: _installedModels.map((model) {
+                        final configProvider = context.read<ConfigProvider>();
+                        final isSelected =
+                            model == configProvider.selectedModel;
 
-                      return InkWell(
-                        onTap: () {
-                          setState(() {
-                            // _selectedModel = model; // Removed local state update
-                            context
-                                .read<ConfigProvider>()
-                                .setSelectedModel(model);
-                            _isModelDropdownOpen = false;
-                          });
+                        return InkWell(
+                          onTap: () {
+                            setState(() {
+                              context
+                                  .read<ConfigProvider>()
+                                  .setSelectedModel(model);
+                              _isModelDropdownOpen = false;
+                            });
 
-                          // Silent preload: trigger model loading in background
-                          _aiService.preloadModel(model);
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? (widget.isDark
-                                    ? Colors.white.withValues(alpha: 0.1)
-                                    : AppColors.lightPrimary
-                                        .withValues(alpha: 0.05))
-                                : Colors.transparent,
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  model,
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: isSelected
-                                        ? FontWeight.bold
-                                        : FontWeight.normal,
-                                    color: isSelected
-                                        ? (widget.isDark
-                                            ? Colors.white
-                                            : AppColors.lightPrimary)
-                                        : (widget.isDark
-                                            ? Colors.grey[300]
-                                            : Colors.grey[600]),
-                                  ),
-                                ),
-                              ),
-                              if (isDownloading)
+                            // Silent preload: trigger model loading in background
+                            _aiService.preloadModel(model);
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? (widget.isDark
+                                      ? Colors.white.withValues(alpha: 0.1)
+                                      : AppColors.lightPrimary
+                                          .withValues(alpha: 0.05))
+                                  : Colors.transparent,
+                            ),
+                            child: Row(
+                              children: [
                                 Expanded(
-                                  child: Padding(
-                                    padding: const EdgeInsets.only(left: 16),
-                                    child: LinearProgressIndicator(
-                                      value: _downloadProgress[model],
-                                      minHeight: 6,
-                                      borderRadius: BorderRadius.circular(4),
-                                      color: widget.isDark
-                                          ? const Color(0xFF4CAF50)
-                                          : AppColors.lightPrimary,
-                                      backgroundColor: widget.isDark
-                                          ? Colors.white.withValues(alpha: 0.1)
-                                          : Colors.grey[200],
+                                  child: Text(
+                                    model,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: isSelected
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                      color: isSelected
+                                          ? (widget.isDark
+                                              ? Colors.white
+                                              : AppColors.lightPrimary)
+                                          : (widget.isDark
+                                              ? Colors.grey[300]
+                                              : Colors.grey[600]),
                                     ),
                                   ),
-                                )
-                              else if (!isInstalled)
-                                IconButton(
-                                  icon: FaIcon(
-                                    FontAwesomeIcons.download,
-                                    size: 14,
-                                    color: widget.isDark
-                                        ? Colors.grey[400]
-                                        : Colors.grey[600],
-                                  ),
-                                  onPressed: () => _downloadModel(model),
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
-                                )
-                              else if (isSelected)
-                                FaIcon(
-                                  FontAwesomeIcons.check,
-                                  size: 12,
-                                  color: widget.isDark
-                                      ? Colors.white
-                                      : AppColors.lightPrimary,
                                 ),
-                            ],
+                                if (isSelected)
+                                  FaIcon(
+                                    FontAwesomeIcons.check,
+                                    size: 12,
+                                    color: widget.isDark
+                                        ? Colors.white
+                                        : AppColors.lightPrimary,
+                                  ),
+                              ],
+                            ),
                           ),
-                        ),
-                      );
-                    }).toList(),
+                        );
+                      }).toList(),
+                    ),
                   ),
                 ).animate().fadeIn(),
 

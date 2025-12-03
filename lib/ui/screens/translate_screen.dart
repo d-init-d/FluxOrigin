@@ -9,6 +9,7 @@ import '../theme/app_theme.dart';
 import '../widgets/language_selector.dart';
 import '../widgets/file_upload_zone.dart';
 import '../../controllers/translation_controller.dart';
+import '../../services/ai_service.dart';
 import '../theme/config_provider.dart';
 
 enum TranslationState { idle, fileSelected, processing, finished }
@@ -37,6 +38,12 @@ class _TranslateScreenState extends State<TranslateScreen> {
   final TranslationController _controller = TranslationController();
   double _progress = 0.0;
   String _statusMessage = "";
+
+  // Live translation preview
+  String _currentSourceChunk = "";
+  String _currentTranslatedChunk = "";
+  int _currentChunkIndex = 0;
+  int _totalChunks = 0;
 
   // Resume state
   bool _hasExistingProgress = false;
@@ -142,7 +149,20 @@ class _TranslateScreenState extends State<TranslateScreen> {
       _currentState = TranslationState.processing;
       _progress = resume ? _existingProgressPercent : 0.0;
       _statusMessage = resume ? "Đang tiếp tục dịch..." : "Đang khởi tạo...";
+      // Reset live translation preview
+      _currentSourceChunk = "";
+      _currentTranslatedChunk = "";
+      _currentChunkIndex = 0;
+      _totalChunks = 0;
     });
+
+    // Set AI config from provider
+    _controller.setAIUrl(configProvider.currentAiUrl);
+    _controller.setAIProviderType(
+      configProvider.aiProvider == AIProvider.lmStudio
+          ? AIProviderType.lmStudio
+          : AIProviderType.ollama,
+    );
 
     // Switch ON = Local Mode (Offline) -> allowInternet: false
     // Switch OFF = Internet Mode (Online) -> allowInternet: true
@@ -162,6 +182,16 @@ class _TranslateScreenState extends State<TranslateScreen> {
             setState(() {
               _statusMessage = status;
               _progress = progress;
+            });
+          }
+        },
+        onChunkUpdate: (currentIndex, total, sourceChunk, translatedChunk) {
+          if (mounted) {
+            setState(() {
+              _currentChunkIndex = currentIndex;
+              _totalChunks = total;
+              _currentSourceChunk = sourceChunk;
+              _currentTranslatedChunk = translatedChunk;
             });
           }
         },
@@ -559,8 +589,9 @@ class _TranslateScreenState extends State<TranslateScreen> {
   Widget _buildProcessingView() {
     return Center(
       child: Container(
-        width: 500,
-        padding: const EdgeInsets.all(32),
+        width: 900,
+        height: 600,
+        padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: widget.isDark ? AppColors.darkSurface : Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -569,46 +600,121 @@ class _TranslateScreenState extends State<TranslateScreen> {
           ),
         ),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              "Đang xử lý...",
-              style: TextStyle(
-                fontFamily: 'Merriweather',
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: widget.isDark ? Colors.white : AppColors.lightPrimary,
-              ),
+            // Header with progress
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Đang xử lý...",
+                        style: TextStyle(
+                          fontFamily: 'Merriweather',
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: widget.isDark
+                              ? Colors.white
+                              : AppColors.lightPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _statusMessage,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: widget.isDark
+                              ? Colors.grey[400]
+                              : Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: widget.isDark
+                        ? Colors.white.withValues(alpha: 0.1)
+                        : AppColors.lightPrimary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    "${(_progress * 100).toStringAsFixed(0)}%",
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color:
+                          widget.isDark ? Colors.white : AppColors.lightPrimary,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 12),
+            // Progress bar
             LinearProgressIndicator(
               value: _progress > 0 ? _progress : null,
-              minHeight: 8,
-              borderRadius: BorderRadius.circular(4),
+              minHeight: 6,
+              borderRadius: BorderRadius.circular(3),
               backgroundColor: widget.isDark
                   ? Colors.white.withValues(alpha: 0.1)
                   : Colors.grey[200],
               color: widget.isDark ? Colors.white : AppColors.lightPrimary,
             ),
             const SizedBox(height: 16),
-            Text(
-              _statusMessage,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                color: widget.isDark ? Colors.grey[300] : Colors.grey[600],
+            // Chunk info
+            if (_totalChunks > 0)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: widget.isDark
+                      ? Colors.blue.withValues(alpha: 0.2)
+                      : Colors.blue.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  "Đoạn $_currentChunkIndex / $_totalChunks",
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: widget.isDark ? Colors.blue[200] : Colors.blue[700],
+                  ),
+                ),
+              ),
+            const SizedBox(height: 16),
+            // Translation preview panels
+            Expanded(
+              child: Row(
+                children: [
+                  // Source text panel
+                  Expanded(
+                    child: _buildTextPanel(
+                      title: "Văn bản gốc",
+                      content: _currentSourceChunk,
+                      icon: FontAwesomeIcons.fileLines,
+                      iconColor: Colors.orange,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  // Translated text panel
+                  Expanded(
+                    child: _buildTextPanel(
+                      title: "Bản dịch",
+                      content: _currentTranslatedChunk,
+                      icon: FontAwesomeIcons.language,
+                      iconColor: Colors.green,
+                      isTranslating: _currentTranslatedChunk == "Đang xử lý...",
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              "${(_progress * 100).toStringAsFixed(0)}%",
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: widget.isDark ? Colors.white70 : AppColors.lightPrimary,
-              ),
-            ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 16),
+            // Action buttons
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -652,6 +758,96 @@ class _TranslateScreenState extends State<TranslateScreen> {
           ],
         ),
       ).animate().fadeIn(),
+    );
+  }
+
+  Widget _buildTextPanel({
+    required String title,
+    required String content,
+    required IconData icon,
+    required Color iconColor,
+    bool isTranslating = false,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: widget.isDark
+            ? Colors.black.withValues(alpha: 0.3)
+            : Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: widget.isDark ? const Color(0xFF333333) : Colors.grey[300]!,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Panel header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: widget.isDark
+                  ? Colors.white.withValues(alpha: 0.05)
+                  : Colors.grey[100],
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(11),
+                topRight: Radius.circular(11),
+              ),
+            ),
+            child: Row(
+              children: [
+                FaIcon(icon, size: 14, color: iconColor),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: widget.isDark ? Colors.white70 : Colors.grey[700],
+                  ),
+                ),
+                if (isTranslating) ...[
+                  const Spacer(),
+                  SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: iconColor,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          // Panel content
+          Expanded(
+            child: content.isEmpty
+                ? Center(
+                    child: Text(
+                      "Chờ dữ liệu...",
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontStyle: FontStyle.italic,
+                        color:
+                            widget.isDark ? Colors.grey[600] : Colors.grey[400],
+                      ),
+                    ),
+                  )
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.all(12),
+                    child: SelectableText(
+                      content,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.6,
+                        color:
+                            widget.isDark ? Colors.grey[300] : Colors.grey[800],
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      ),
     );
   }
 

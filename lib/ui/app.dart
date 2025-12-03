@@ -10,6 +10,7 @@ import 'screens/translate_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/dictionary_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/dev_logs_screen.dart';
 
 class MyApp extends StatefulWidget {
   const MyApp({super.key});
@@ -87,6 +88,8 @@ class _MyAppState extends State<MyApp> {
                                         DictionaryScreen(
                                             isDark: themeNotifier.isDark),
                                         SettingsScreen(
+                                            isDark: themeNotifier.isDark),
+                                        DevLogsScreen(
                                             isDark: themeNotifier.isDark),
                                       ],
                                     ),
