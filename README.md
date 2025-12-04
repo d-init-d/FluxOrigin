@@ -81,6 +81,7 @@ Dưới đây là danh sách các model được tối ưu sẵn trong ứng d�
 
 Dự án được viết bằng **Flutter (Dart)** với cấu trúc Clean Architecture cơ bản:
 
+
 * lib/ui/: Chứa giao diện người dùng (Screens, Widgets).  
 * lib/services/: Xử lý logic gọi API (AiService, WebSearchService).  
 * lib/controllers/: Quản lý trạng thái ứng dụng (TranslationController).  
