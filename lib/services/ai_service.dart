@@ -598,10 +598,18 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
             'Last message (truncated): $truncatedContent\n\nBody: ${jsonEncode(body)}',
       );
 
+      // Get timeout from options, default to 5 minutes (300000ms)
+      final int timeoutMs = options?['timeout'] ?? 300000;
       final response = await http.post(
         Uri.parse(_chatUrl),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode(body),
+      ).timeout(
+        Duration(milliseconds: timeoutMs),
+        onTimeout: () {
+          throw Exception(
+              'AI request timed out after ${timeoutMs ~/ 1000} seconds. The model may still be loading. Please try again.');
+        },
       );
 
       stopwatch.stop();

@@ -121,92 +121,123 @@ Resume: $resume
       if (progress != null && !resume) {
         final File progressFile = File(progressPath);
         if (await progressFile.exists()) {
-          await progressFile.delete();
+          // Retry loop to handle Windows file lock (OS Error 32)
+          bool deleted = false;
+          for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+              await progressFile.delete();
+              deleted = true;
+              break;
+            } on PathAccessException catch (e) {
+              _logger.warning('Translation',
+                  'File delete attempt $attempt/3 failed (OS Error 32): $e');
+              if (attempt < 3) {
+                await Future.delayed(const Duration(milliseconds: 500));
+              }
+            }
+          }
+          if (!deleted) {
+            _logger.warning('Translation',
+                'Could not delete progress file after 3 attempts. Proceeding anyway (writeAsString may overwrite).');
+          }
         }
         progress = null;
       }
-      onUpdate(AppStrings.get(appLanguage, 'status_reading_file'), 0.0);
-      _logger.debug('Translation', 'Reading source file...');
 
-      // Extract text content based on file type (TXT or EPUB)
-      // Use compute() for heavy EPUB parsing to avoid blocking UI
-      final String content = await compute(_extractTextInIsolate, filePath);
-      final String fileName = path.basenameWithoutExtension(filePath);
-      _logger.info('Translation', 'File loaded: ${content.length} characters');
-
-      onUpdate(AppStrings.get(appLanguage, 'status_analyzing'), 0.1);
-      // Use compute() for heavy text splitting to avoid blocking UI
-      final List<String> chunks = await compute(_smartSplitInIsolate, content);
-      final String sample = TextProcessor.createSample(content);
-      _logger.info('Translation', 'Text split into ${chunks.length} chunks');
-
-      onUpdate(AppStrings.get(appLanguage, 'status_detecting_genre'), 0.2);
-      // Chỉ detect genre nếu nguồn là Tiếng Trung, các trường hợp khác dùng "KHAC"
-      final String genreKey = sourceLanguage == 'Tiếng Trung'
-          ? await _aiService.detectGenre(sample, modelName)
-          : "KHAC";
-      _logger.info('Translation', 'Detected genre: $genreKey');
-
-      final String systemPrompt =
-          _aiService.getSystemPrompt(genreKey, sourceLanguage, targetLanguage);
-      _logger.debug('Translation', 'System prompt set', details: systemPrompt);
-
-      onUpdate(AppStrings.get(appLanguage, 'status_creating_glossary'), 0.3);
-      final String glossaryCsv = await _aiService.generateGlossary(
-          sample, modelName, sourceLanguage, genreKey);
-      _logger.info('Translation',
-          'Glossary generated: ${glossaryCsv.split('\n').length} terms');
-
-      // Smart Merge: Merge AI glossary with existing user CSV
-      final glossaryFile =
-          File(path.join(dictionaryDir, "${fileName}_glossary.csv"));
-
+      // INITIALIZATION SECTION - Wrapped in try-catch to handle AI service failures
       try {
-        final String mergedCsv = await _smartMergeGlossary(
-          aiGeneratedCsv: glossaryCsv,
-          existingFile: glossaryFile,
+        onUpdate(AppStrings.get(appLanguage, 'status_reading_file'), 0.0);
+        _logger.debug('Translation', 'Reading source file...');
+
+        // Extract text content based on file type (TXT or EPUB)
+        // Use compute() for heavy EPUB parsing to avoid blocking UI
+        final String content = await compute(_extractTextInIsolate, filePath);
+        final String fileName = path.basenameWithoutExtension(filePath);
+        _logger.info('Translation', 'File loaded: ${content.length} characters');
+
+        onUpdate(AppStrings.get(appLanguage, 'status_analyzing'), 0.1);
+        // Use compute() for heavy text splitting to avoid blocking UI
+        final List<String> chunks = await compute(_smartSplitInIsolate, content);
+        final String sample = TextProcessor.createSample(content);
+        _logger.info('Translation', 'Text split into ${chunks.length} chunks');
+
+        onUpdate(AppStrings.get(appLanguage, 'status_detecting_genre'), 0.2);
+        // Chỉ detect genre nếu nguồn là Tiếng Trung, các trường hợp khác dùng "KHAC"
+        final String genreKey = sourceLanguage == 'Tiếng Trung'
+            ? await _aiService.detectGenre(sample, modelName)
+            : "KHAC";
+        _logger.info('Translation', 'Detected genre: $genreKey');
+
+        final String systemPrompt =
+            _aiService.getSystemPrompt(genreKey, sourceLanguage, targetLanguage);
+        _logger.debug('Translation', 'System prompt set', details: systemPrompt);
+
+        onUpdate(AppStrings.get(appLanguage, 'status_creating_glossary'), 0.3);
+        final String glossaryCsv = await _aiService.generateGlossary(
+            sample, modelName, sourceLanguage, genreKey);
+        _logger.info('Translation',
+            'Glossary generated: ${glossaryCsv.split('\n').length} terms');
+
+        // Smart Merge: Merge AI glossary with existing user CSV
+        final glossaryFile =
+            File(path.join(dictionaryDir, "${fileName}_glossary.csv"));
+
+        try {
+          final String mergedCsv = await _smartMergeGlossary(
+            aiGeneratedCsv: glossaryCsv,
+            existingFile: glossaryFile,
+          );
+
+          // Save merged glossary as CSV
+          await glossaryFile.writeAsString(mergedCsv);
+          _logger.debug('Translation', 'Glossary saved to: ${glossaryFile.path}');
+        } catch (e) {
+          _logger.warning('Translation', 'Error saving glossary: $e');
+          // Non-critical error, continue
+        }
+
+        // Enrich Glossary: Lookup definitions (only if Internet is allowed)
+        String glossary;
+        if (allowInternet) {
+          onUpdate("Đang tra cứu thuật ngữ (RAG)...", 0.35);
+          glossary = await _enrichGlossary(
+            glossaryFile: glossaryFile,
+            targetLanguage: targetLanguage,
+            onUpdate: onUpdate,
+          );
+        } else {
+          onUpdate("Chế độ cục bộ - bỏ qua tra cứu Internet...", 0.35);
+          glossary = await glossaryFile.readAsString();
+        }
+
+        // Create output path in outputDir
+        // Note: In new flow, we don't save automatically, but we keep this field
+        // in TranslationProgress for compatibility or future use.
+        const String outputPath = "";
+
+        progress = TranslationProgress(
+          sourcePath: filePath,
+          outputPath: outputPath,
+          glossary: glossary,
+          systemPrompt: systemPrompt,
+          genre: genreKey,
+          rawChunks: chunks,
+          translatedChunks: List<String?>.filled(chunks.length, null),
+          currentIndex: 0,
+          lastUpdated: DateTime.now(),
         );
 
-        // Save merged glossary as CSV
-        await glossaryFile.writeAsString(mergedCsv);
-        _logger.debug('Translation', 'Glossary saved to: ${glossaryFile.path}');
+        await progress.saveToFile(progressPath);
       } catch (e) {
-        _logger.warning('Translation', 'Error saving glossary: $e');
-        // Non-critical error, continue
+        // Log the initialization error
+        _logger.error('Translation', 'Initialization failed during glossary generation', details: e.toString());
+        
+        // CRITICAL: Update UI with error status so it doesn't stay stuck at "Creating glossary"
+        onUpdate(AppStrings.get(appLanguage, 'status_error') + ': $e', 0.3);
+        
+        // Rethrow to stop execution and let caller handle the error
+        rethrow;
       }
-
-      // Enrich Glossary: Lookup definitions (only if Internet is allowed)
-      String glossary;
-      if (allowInternet) {
-        onUpdate("Đang tra cứu thuật ngữ (RAG)...", 0.35);
-        glossary = await _enrichGlossary(
-          glossaryFile: glossaryFile,
-          targetLanguage: targetLanguage,
-          onUpdate: onUpdate,
-        );
-      } else {
-        onUpdate("Chế độ cục bộ - bỏ qua tra cứu Internet...", 0.35);
-        glossary = await glossaryFile.readAsString();
-      }
-
-      // Create output path in outputDir
-      // Note: In new flow, we don't save automatically, but we keep this field
-      // in TranslationProgress for compatibility or future use.
-      const String outputPath = "";
-
-      progress = TranslationProgress(
-        sourcePath: filePath,
-        outputPath: outputPath,
-        glossary: glossary,
-        systemPrompt: systemPrompt,
-        genre: genreKey,
-        rawChunks: chunks,
-        translatedChunks: List<String?>.filled(chunks.length, null),
-        currentIndex: 0,
-        lastUpdated: DateTime.now(),
-      );
-
-      await progress.saveToFile(progressPath);
     }
 
     // --- 2. TRANSLATION LOOP WITH CONTEXT AWARENESS ---

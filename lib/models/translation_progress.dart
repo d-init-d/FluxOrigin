@@ -68,6 +68,6 @@ class TranslationProgress {
   Future<void> saveToFile(String filePath) async {
     final file = File(filePath);
     lastUpdated = DateTime.now();
-    await file.writeAsString(jsonEncode(toJson()));
+    await file.writeAsString(jsonEncode(toJson()), flush: true);
   }
 }
