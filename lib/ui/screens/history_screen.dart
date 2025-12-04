@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:path/path.dart' as path;
 import '../theme/app_theme.dart';
 import '../theme/config_provider.dart';
+import '../../utils/app_strings.dart';
 
 class HistoryItem {
   final String fileName;
@@ -28,16 +29,16 @@ class HistoryItem {
     );
   }
 
-  String get formattedDate {
+  String formattedDate(String lang) {
     final now = DateTime.now();
     final diff = now.difference(date);
     
     if (diff.inDays == 0) {
       return '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
     } else if (diff.inDays == 1) {
-      return 'Hôm qua';
+      return AppStrings.get(lang, 'yesterday');
     } else if (diff.inDays < 7) {
-      return '${diff.inDays} ngày trước';
+      return '${diff.inDays} ${AppStrings.get(lang, 'days_ago')}';
     } else {
       return '${date.day}/${date.month}/${date.year}';
     }
@@ -122,6 +123,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final lang = context.watch<ConfigProvider>().appLanguage;
     return RefreshIndicator(
       onRefresh: _loadHistory,
       child: Container(
@@ -134,7 +136,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Lịch sử dịch thuật',
+                  AppStrings.get(lang, 'history_title'),
                   style: GoogleFonts.merriweather(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -144,7 +146,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 IconButton(
                   onPressed: _loadHistory,
                   icon: const FaIcon(FontAwesomeIcons.arrowsRotate, size: 14),
-                  tooltip: 'Làm mới',
+                  tooltip: AppStrings.get(lang, 'refresh_tooltip'),
                   style: IconButton.styleFrom(
                     backgroundColor: widget.isDark
                         ? Colors.white.withValues(alpha: 0.1)
@@ -165,6 +167,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Widget _buildContent() {
+    final lang = context.watch<ConfigProvider>().appLanguage;
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -181,7 +184,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             ),
             const SizedBox(height: 16),
             Text(
-              'Chưa có lịch sử dịch',
+              AppStrings.get(lang, 'no_history'),
               style: TextStyle(
                 fontSize: 16,
                 color: widget.isDark ? Colors.grey[400] : Colors.grey[600],
@@ -189,7 +192,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Các file đã dịch thành công sẽ hiển thị ở đây',
+              AppStrings.get(lang, 'no_history_subtitle'),
               style: TextStyle(
                 fontSize: 14,
                 color: widget.isDark ? Colors.grey[600] : Colors.grey[400],
@@ -206,6 +209,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       itemBuilder: (context, index) => _HistoryCard(
         isDark: widget.isDark,
         item: _history[index],
+        lang: lang,
       ),
     );
   }
@@ -215,10 +219,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
 class _HistoryCard extends StatefulWidget {
   final bool isDark;
   final HistoryItem item;
+  final String lang;
 
   const _HistoryCard({
     required this.isDark,
     required this.item,
+    required this.lang,
   });
 
   @override
@@ -301,7 +307,7 @@ class _HistoryCardState extends State<_HistoryCard> {
 
             // Date (Right)
             Text(
-              widget.item.formattedDate,
+              widget.item.formattedDate(widget.lang),
               style: GoogleFonts.inter(
                 fontSize: 13,
                 color: widget.isDark ? Colors.grey[400] : Colors.grey[600],

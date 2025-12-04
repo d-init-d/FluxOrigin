@@ -9,6 +9,7 @@ import '../services/web_search_service.dart';
 import '../services/dev_logger.dart';
 import '../utils/text_processor.dart';
 import '../utils/file_parser.dart';
+import '../utils/app_strings.dart';
 
 class TranslationController {
   final AIService _aiService = AIService();
@@ -89,6 +90,7 @@ class TranslationController {
         onChunkUpdate,
     required bool allowInternet,
     bool resume = false,
+    String appLanguage = 'vi',
   }) async {
     // Reset pause state at start
     _isPaused = false;
@@ -111,7 +113,7 @@ Resume: $resume
     if (progress != null && resume) {
       _logger.info('Translation',
           'Resuming from saved progress: ${progress.currentIndex}/${progress.rawChunks.length} chunks');
-      onUpdate("Đã tìm thấy bản lưu cũ. Đang khôi phục tiến độ...",
+      onUpdate(AppStrings.get(appLanguage, 'status_restoring_progress'),
           progress.currentIndex / progress.rawChunks.length);
       await Future.delayed(const Duration(seconds: 1)); // UX delay
     } else {
@@ -123,7 +125,7 @@ Resume: $resume
         }
         progress = null;
       }
-      onUpdate("Đang đọc file gốc...", 0.0);
+      onUpdate(AppStrings.get(appLanguage, 'status_reading_file'), 0.0);
       _logger.debug('Translation', 'Reading source file...');
 
       // Extract text content based on file type (TXT or EPUB)
@@ -132,13 +134,13 @@ Resume: $resume
       final String fileName = path.basenameWithoutExtension(filePath);
       _logger.info('Translation', 'File loaded: ${content.length} characters');
 
-      onUpdate("Đang phân tích và chia nhỏ văn bản...", 0.1);
+      onUpdate(AppStrings.get(appLanguage, 'status_analyzing'), 0.1);
       // Use compute() for heavy text splitting to avoid blocking UI
       final List<String> chunks = await compute(_smartSplitInIsolate, content);
       final String sample = TextProcessor.createSample(content);
       _logger.info('Translation', 'Text split into ${chunks.length} chunks');
 
-      onUpdate("AI đang đọc thử để xác định thể loại...", 0.2);
+      onUpdate(AppStrings.get(appLanguage, 'status_detecting_genre'), 0.2);
       // Chỉ detect genre nếu nguồn là Tiếng Trung, các trường hợp khác dùng "KHAC"
       final String genreKey = sourceLanguage == 'Tiếng Trung'
           ? await _aiService.detectGenre(sample, modelName)
@@ -149,7 +151,7 @@ Resume: $resume
           _aiService.getSystemPrompt(genreKey, sourceLanguage, targetLanguage);
       _logger.debug('Translation', 'System prompt set', details: systemPrompt);
 
-      onUpdate("AI đang tạo từ điển tên riêng...", 0.3);
+      onUpdate(AppStrings.get(appLanguage, 'status_creating_glossary'), 0.3);
       final String glossaryCsv = await _aiService.generateGlossary(
           sample, modelName, sourceLanguage, genreKey);
       _logger.info('Translation',
@@ -229,13 +231,13 @@ Resume: $resume
       if (_isPaused) {
         _logger.info(
             'Translation', 'Translation paused at chunk ${i + 1}/$total');
-        onUpdate("Đã tạm dừng. Tiến độ đã được lưu.", i / total);
+        onUpdate(AppStrings.get(appLanguage, 'status_paused'), i / total);
         await progress.saveToFile(progressPath);
         return null; // Return null to indicate paused state
       }
 
       final double percent = (i / total);
-      onUpdate("Đang dịch đoạn ${i + 1}/$total...", percent);
+      onUpdate("${AppStrings.get(appLanguage, 'status_translating')} ${i + 1}/$total...", percent);
 
       try {
         final String chunk = progress.rawChunks[i];
@@ -243,7 +245,7 @@ Resume: $resume
             'Translating chunk ${i + 1}/$total (${chunk.length} chars)');
 
         // Notify UI about current chunk being processed
-        onChunkUpdate?.call(i + 1, total, chunk, "Đang xử lý...");
+        onChunkUpdate?.call(i + 1, total, chunk, AppStrings.get(appLanguage, 'processing'));
 
         final String translated = await _aiService.translateChunk(
           chunk,
@@ -275,17 +277,17 @@ Resume: $resume
         await progress.saveToFile(progressPath);
       } catch (e) {
         _logger.error('Translation', 'Error translating chunk ${i + 1}: $e');
-        onUpdate("Lỗi khi dịch đoạn ${i + 1}: $e. Đang thử lại...", percent);
+        onUpdate("${AppStrings.get(appLanguage, 'status_error')} ${i + 1}: $e", percent);
         // Simple retry logic: decrement i to retry this chunk next loop
         // Or just throw to stop and let user resume later.
         // For now, let's throw so the loop stops and user can resume.
-        throw Exception("Lỗi dịch thuật tại đoạn ${i + 1}: $e");
+        throw Exception("${AppStrings.get(appLanguage, 'status_error')} ${i + 1}: $e");
       }
     }
 
     // --- 3. FINALIZE ---
     _logger.info('Translation', 'Translation complete! Finalizing...');
-    onUpdate("Đang ghép file kết quả...", 1.0);
+    onUpdate(AppStrings.get(appLanguage, 'status_merging'), 1.0);
     final StringBuffer finalContent = StringBuffer();
     for (final chunk in progress.translatedChunks) {
       if (chunk != null) {
@@ -309,7 +311,7 @@ Resume: $resume
 
     _logger.info('Translation',
         'Translation saved! Final length: ${finalContent.length} chars');
-    onUpdate("Dịch hoàn tất!", 1.0);
+    onUpdate(AppStrings.get(appLanguage, 'status_completed'), 1.0);
     return finalContent.toString();
   }
 

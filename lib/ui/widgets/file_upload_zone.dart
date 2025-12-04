@@ -3,23 +3,28 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:path/path.dart' as path;
+import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
+import '../theme/config_provider.dart';
+import '../../utils/app_strings.dart';
 
 class FileUploadZone extends StatefulWidget {
   final bool isDark;
-  final String title;
-  final String subtitle;
+  final String? title;
+  final String? subtitle;
   final IconData icon;
+  final bool enabled;
 
   final Function(String)? onFileSelected;
 
   const FileUploadZone({
     super.key,
     required this.isDark,
-    this.title = 'Kéo thả tài liệu vào đây',
-    this.subtitle = 'Hỗ trợ .TXT, .EPUB',
+    this.title,
+    this.subtitle,
     this.icon = FontAwesomeIcons.cloudArrowUp,
     this.onFileSelected,
+    this.enabled = true,
   });
 
   @override
@@ -32,15 +37,20 @@ class _FileUploadZoneState extends State<FileUploadZone> {
 
   @override
   Widget build(BuildContext context) {
+    final lang = context.watch<ConfigProvider>().appLanguage;
+    final displayTitle = widget.title ?? AppStrings.get(lang, 'drag_drop_file');
+    final displaySubtitle = widget.subtitle ?? AppStrings.get(lang, 'supported_formats');
+    
     return DropTarget(
       onDragEntered: (details) {
-        setState(() => _isDragging = true);
+        if (widget.enabled) setState(() => _isDragging = true);
       },
       onDragExited: (details) {
         setState(() => _isDragging = false);
       },
       onDragDone: (details) {
         setState(() => _isDragging = false);
+        if (!widget.enabled) return;
         if (details.files.isNotEmpty) {
           final file = details.files.first;
           final ext = path.extension(file.path).toLowerCase();
@@ -50,7 +60,7 @@ class _FileUploadZoneState extends State<FileUploadZone> {
             // Optional: Show error for unsupported file type
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: const Text('Chỉ hỗ trợ file .TXT và .EPUB'),
+                content: Text(AppStrings.get(lang, 'unsupported_format_error')),
                 behavior: SnackBarBehavior.floating,
                 backgroundColor: Colors.red,
                 shape: RoundedRectangleBorder(
@@ -61,9 +71,13 @@ class _FileUploadZoneState extends State<FileUploadZone> {
         }
       },
       child: MouseRegion(
-        onEnter: (_) => setState(() => _isHovered = true),
+        onEnter: (_) {
+          if (widget.enabled) setState(() => _isHovered = true);
+        },
         onExit: (_) => setState(() => _isHovered = false),
-        child: Container(
+        child: Opacity(
+          opacity: widget.enabled ? 1.0 : 0.5,
+          child: Container(
           decoration: BoxDecoration(
             color: _isDragging
                 ? (widget.isDark
@@ -119,7 +133,7 @@ class _FileUploadZoneState extends State<FileUploadZone> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    _isDragging ? 'Thả file vào đây' : widget.title,
+                    _isDragging ? AppStrings.get(lang, 'drop_file_here') : displayTitle,
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w500,
@@ -130,7 +144,7 @@ class _FileUploadZoneState extends State<FileUploadZone> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    widget.subtitle,
+                    displaySubtitle,
                     style: TextStyle(
                       fontSize: 12,
                       color: widget.isDark
@@ -140,15 +154,17 @@ class _FileUploadZoneState extends State<FileUploadZone> {
                   ),
                   const SizedBox(height: 16),
                   ElevatedButton(
-                    onPressed: () async {
-                      final result = await FilePicker.platform.pickFiles(
-                        type: FileType.custom,
-                        allowedExtensions: ['txt', 'epub'],
-                      );
-                      if (result != null && result.files.single.path != null) {
-                        widget.onFileSelected?.call(result.files.single.path!);
-                      }
-                    },
+                    onPressed: widget.enabled
+                        ? () async {
+                            final result = await FilePicker.platform.pickFiles(
+                              type: FileType.custom,
+                              allowedExtensions: ['txt', 'epub'],
+                            );
+                            if (result != null && result.files.single.path != null) {
+                              widget.onFileSelected?.call(result.files.single.path!);
+                            }
+                          }
+                        : null,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: widget.isDark
                           ? Colors.white.withValues(alpha: 0.1)
@@ -162,9 +178,9 @@ class _FileUploadZoneState extends State<FileUploadZone> {
                         borderRadius: BorderRadius.circular(20),
                       ),
                     ),
-                    child: const Text(
-                      'Chọn file',
-                      style: TextStyle(
+                    child: Text(
+                      AppStrings.get(lang, 'choose_file'),
+                      style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),
@@ -174,6 +190,7 @@ class _FileUploadZoneState extends State<FileUploadZone> {
               ),
             ),
           ),
+        ),
         ),
       ),
     );

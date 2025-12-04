@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
+import '../theme/config_provider.dart';
+import '../../utils/app_strings.dart';
 
 class LanguageSelector extends StatefulWidget {
   final String value;
@@ -101,8 +104,8 @@ class _LanguageSelectorState extends State<LanguageSelector> {
                             decoration: BoxDecoration(
                               color: isSelected
                                   ? (widget.isDark
-                                      ? Colors.white.withOpacity(0.1)
-                                      : AppColors.lightPrimary.withOpacity(0.1))
+                                      ? Colors.white.withValues(alpha: 0.1)
+                                      : AppColors.lightPrimary.withValues(alpha: 0.1))
                                   : Colors.transparent,
                             ),
                             child: _buildLanguageItem(lang, isSelected),
@@ -121,68 +124,65 @@ class _LanguageSelectorState extends State<LanguageSelector> {
   }
 
   Widget _buildLanguageItem(String lang, bool isSelected) {
+    final appLang = context.read<ConfigProvider>().appLanguage;
     final isDisabled = lang == widget.disabledLanguage;
 
-    return IgnorePointer(
-      ignoring: isDisabled,
-      child: Opacity(
-        opacity: isDisabled ? 0.5 : 1.0,
-        child: Row(
-          children: [
-            Container(
-              width: 24,
-              height: 24,
-              decoration: BoxDecoration(
-                color: widget.isDark
-                    ? Colors.white.withOpacity(0.2)
-                    : Colors.grey[100],
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Center(
-                child: Text(
-                  _getLanguageCode(lang),
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: widget.isDark ? Colors.white : Colors.grey[500],
-                  ),
-                ),
-              ),
+    return Opacity(
+      opacity: isDisabled ? 0.5 : 1.0,
+      child: Row(
+        children: [
+          Container(
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: widget.isDark
+                  ? Colors.white.withValues(alpha: 0.2)
+                  : Colors.grey[100],
+              borderRadius: BorderRadius.circular(4),
             ),
-            const SizedBox(width: 12),
-            Expanded(
+            child: Center(
               child: Text(
-                lang,
+                _getLanguageCode(lang),
                 style: TextStyle(
-                  fontSize: 14,
-                  color: isDisabled
-                      ? Colors.grey
-                      : (isSelected
-                          ? (widget.isDark
-                              ? Colors.white
-                              : AppColors.lightPrimary)
-                          : (widget.isDark
-                              ? Colors.grey[300]
-                              : Colors.grey[600])),
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                  decoration: null,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: widget.isDark ? Colors.white : Colors.grey[500],
                 ),
               ),
             ),
-            if (isSelected)
-              FaIcon(
-                FontAwesomeIcons.check,
-                size: 12,
-                color: widget.isDark ? Colors.white : AppColors.lightPrimary,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _getLocalizedLanguageName(lang, appLang),
+              style: TextStyle(
+                fontSize: 14,
+                color: isDisabled
+                    ? Colors.grey
+                    : (isSelected
+                        ? (widget.isDark
+                            ? Colors.white
+                            : AppColors.lightPrimary)
+                        : (widget.isDark ? Colors.white : Colors.grey[800])),
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                decoration: null,
               ),
-          ],
-        ),
+            ),
+          ),
+          if (isSelected)
+            FaIcon(
+              FontAwesomeIcons.check,
+              size: 12,
+              color: widget.isDark ? Colors.white : AppColors.lightPrimary,
+            ),
+        ],
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final appLang = context.watch<ConfigProvider>().appLanguage;
     return CompositedTransformTarget(
       link: _layerLink,
       child: MouseRegion(
@@ -207,8 +207,8 @@ class _LanguageSelectorState extends State<LanguageSelector> {
                   height: 24,
                   decoration: BoxDecoration(
                     color: widget.isDark
-                        ? Colors.white.withOpacity(0.1)
-                        : AppColors.lightPrimary.withOpacity(0.05),
+                        ? Colors.white.withValues(alpha: 0.1)
+                        : AppColors.lightPrimary.withValues(alpha: 0.05),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Center(
@@ -218,7 +218,7 @@ class _LanguageSelectorState extends State<LanguageSelector> {
                         fontSize: 10,
                         fontWeight: FontWeight.bold,
                         color: widget.isDark
-                            ? Colors.white.withOpacity(0.8)
+                            ? Colors.white.withValues(alpha: 0.8)
                             : AppColors.lightPrimary,
                       ),
                     ),
@@ -227,7 +227,7 @@ class _LanguageSelectorState extends State<LanguageSelector> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    widget.value,
+                    _getLocalizedLanguageName(widget.value, appLang),
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
@@ -262,6 +262,19 @@ class _LanguageSelectorState extends State<LanguageSelector> {
         return 'VI';
       default:
         return lang.length >= 2 ? lang.substring(0, 2).toUpperCase() : lang;
+    }
+  }
+
+  String _getLocalizedLanguageName(String langCode, String currentAppLang) {
+    switch (langCode) {
+      case 'Tiếng Anh':
+        return AppStrings.get(currentAppLang, 'lang_en');
+      case 'Tiếng Việt':
+        return AppStrings.get(currentAppLang, 'lang_vi');
+      case 'Tiếng Trung':
+        return AppStrings.get(currentAppLang, 'lang_cn');
+      default:
+        return langCode;
     }
   }
 }

@@ -10,6 +10,7 @@ class ConfigProvider extends ChangeNotifier {
   static const String _ollamaUrlKey = 'ollama_url';
   static const String _lmStudioUrlKey = 'lm_studio_url';
   static const String _aiProviderKey = 'ai_provider';
+  static const String _appLanguageKey = 'app_language';
   static const String _defaultOllamaUrl = 'http://localhost:11434';
   static const String _defaultLmStudioUrl = 'http://localhost:1234';
 
@@ -18,6 +19,7 @@ class ConfigProvider extends ChangeNotifier {
   String _ollamaUrl = _defaultOllamaUrl;
   String _lmStudioUrl = _defaultLmStudioUrl;
   AIProvider _aiProvider = AIProvider.ollama;
+  String _appLanguage = 'vi'; // Default language
   bool _isLoading = true;
 
   String get projectPath => _projectPath;
@@ -25,6 +27,7 @@ class ConfigProvider extends ChangeNotifier {
   String get ollamaUrl => _ollamaUrl;
   String get lmStudioUrl => _lmStudioUrl;
   AIProvider get aiProvider => _aiProvider;
+  String get appLanguage => _appLanguage;
   bool get isLoading => _isLoading;
 
   /// Get the current AI URL based on selected provider
@@ -49,6 +52,7 @@ class ConfigProvider extends ChangeNotifier {
     _selectedModel = prefs.getString(_selectedModelKey) ?? 'qwen2.5:7b';
     _ollamaUrl = prefs.getString(_ollamaUrlKey) ?? _defaultOllamaUrl;
     _lmStudioUrl = prefs.getString(_lmStudioUrlKey) ?? _defaultLmStudioUrl;
+    _appLanguage = prefs.getString(_appLanguageKey) ?? 'vi';
 
     // Load AI provider
     final providerStr = prefs.getString(_aiProviderKey) ?? 'ollama';
@@ -107,6 +111,14 @@ class ConfigProvider extends ChangeNotifier {
         provider == AIProvider.lmStudio ? 'lmStudio' : 'ollama');
 
     _aiProvider = provider;
+    notifyListeners();
+  }
+
+  Future<void> setAppLanguage(String lang) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_appLanguageKey, lang);
+
+    _appLanguage = lang;
     notifyListeners();
   }
 }

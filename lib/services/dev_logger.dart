@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
 
 enum LogLevel { debug, info, warning, error, request, response }
@@ -91,12 +92,32 @@ class DevLogger extends ChangeNotifier {
 
     notifyListeners();
 
-    // Also print to console in debug mode
+    // Also print to console in debug mode using dart:developer.log
     if (kDebugMode) {
-      debugPrint('[${entry.levelName}] [$category] $message');
-      if (details != null) {
-        debugPrint('  Details: $details');
-      }
+      final logMessage = details != null ? '$message\nDetails: $details' : message;
+      developer.log(
+        logMessage,
+        name: 'FluxOrigin.$category',
+        level: _getLogLevel(level),
+      );
+    }
+  }
+
+  /// Map LogLevel to dart:developer log levels
+  int _getLogLevel(LogLevel level) {
+    switch (level) {
+      case LogLevel.debug:
+        return 500; // FINE
+      case LogLevel.info:
+        return 800; // INFO
+      case LogLevel.warning:
+        return 900; // WARNING
+      case LogLevel.error:
+        return 1000; // SEVERE
+      case LogLevel.request:
+        return 700; // CONFIG
+      case LogLevel.response:
+        return 700; // CONFIG
     }
   }
 

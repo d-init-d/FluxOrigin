@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
+import '../theme/config_provider.dart';
+import '../../utils/app_strings.dart';
 import 'sidebar_item.dart';
 
 class Sidebar extends StatelessWidget {
@@ -18,6 +21,7 @@ class Sidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final lang = context.watch<ConfigProvider>().appLanguage;
     return Container(
       width: 250,
       decoration: BoxDecoration(
@@ -66,21 +70,21 @@ class Sidebar extends StatelessWidget {
                 children: [
                   SidebarItem(
                     icon: FontAwesomeIcons.language,
-                    label: 'Dịch thuật',
+                    label: AppStrings.get(lang, 'sidebar_translate'),
                     isActive: selectedIndex == 0,
                     onTap: () => onItemTap(0),
                     isDark: isDark,
                   ),
                   SidebarItem(
                     icon: FontAwesomeIcons.clockRotateLeft,
-                    label: 'Lịch sử',
+                    label: AppStrings.get(lang, 'sidebar_history'),
                     isActive: selectedIndex == 1,
                     onTap: () => onItemTap(1),
                     isDark: isDark,
                   ),
                   SidebarItem(
                     icon: FontAwesomeIcons.bookOpenReader,
-                    label: 'Từ điển',
+                    label: AppStrings.get(lang, 'sidebar_dictionary'),
                     isActive: selectedIndex == 2,
                     onTap: () => onItemTap(2),
                     isDark: isDark,
@@ -97,8 +101,8 @@ class Sidebar extends StatelessWidget {
               border: Border(
                 top: BorderSide(
                   color: isDark
-                      ? Colors.grey.withOpacity(0.1)
-                      : Colors.grey.withOpacity(0.1),
+                      ? Colors.grey.withValues(alpha: 0.1)
+                      : Colors.grey.withValues(alpha: 0.1),
                   width: 1,
                 ),
               ),
@@ -109,7 +113,7 @@ class Sidebar extends StatelessWidget {
                 children: [
                   SidebarItem(
                     icon: FontAwesomeIcons.gear,
-                    label: 'Cài đặt',
+                    label: AppStrings.get(lang, 'sidebar_settings'),
                     isActive: selectedIndex == 3,
                     onTap: () => onItemTap(3),
                     isDark: isDark,
