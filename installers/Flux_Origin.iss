@@ -3,7 +3,7 @@
 ; Non-commercial use only
 
 #define MyAppName "FluxOrigin"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "2.0.0"
 #define MyAppPublisher "d-init-d"
 #define MyAppURL "https://github.com/d-init-d/FluxOrigin.git"
 #define MyAppExeName "flux_origin.exe"
@@ -36,7 +36,7 @@ InfoBeforeFile=D:\Downloads\info.txt
 ; Uncomment the following line to run in non administrative install mode (install for current user only).
 ;PrivilegesRequired=lowest
 OutputDir=D:\Downloads
-OutputBaseFilename=FluxOrigin_Installer_v1.0.1
+OutputBaseFilename=FluxOrigin_Installer_v2.0.0
 SetupIconFile=D:\FluxOrigin\windows\runner\resources\app_icon.ico
 SolidCompression=yes
 WizardStyle=modern dynamic

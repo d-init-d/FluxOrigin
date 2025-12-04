@@ -1,7 +1,7 @@
 name: flux_origin
 description: A translation desktop application for Windows
 publish_to: 'none'
-version: 1.0.0+1
+version: 2.0.0+1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -36,6 +36,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  msix: ^3.7.0
 
 
 flutter:
@@ -48,8 +49,9 @@ msix_config:
   publisher_display_name: d-init-d
   identity_name: d-init-d.FluxOrigin  # QUAN TRỌNG: Nếu đăng Store, phải lấy tên Identity từ Partner Center
   publisher: CN=94D446F9-8A96-471F-9749-DFF18CBA6CD8     # QUAN TRỌNG: Nếu đăng Store, phải lấy chuỗi Publisher ID (ví dụ: CN=92837...) từ Partner Center
-  msix_version: 1.0.0.0
-  logo_path: windows/runner/resources/app_icon.ico
+  msix_version: 2.0.0.0
+  logo_path: D:\FluxOrigin\assets\fluxorigin logo.png
+  store: true
   capabilities: "internetClient, internetClientServer"
   # Các quyền truy cập file nếu app cần (vì MSIX chạy trong sandbox)
   # un-comment nếu app cần đọc/ghi file tự do ngoài thư mục app
