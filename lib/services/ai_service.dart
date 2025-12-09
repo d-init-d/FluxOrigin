@@ -7,6 +7,13 @@ enum AIProviderType { ollama, lmStudio }
 
 class AIService {
   static const String _defaultBaseUrl = 'http://localhost:11434';
+  
+  // Configuration constants
+  static const int _glossaryTimeoutMs = 180000; // 3 minutes for glossary generation
+  static const int _maxRetries = 2; // Maximum retry attempts for garbage output
+  static const Duration _retryDelay = Duration(milliseconds: 500);
+  static final RegExp _punctuationOnlyRegex = RegExp(r'^[\s\d\p{P}]+$', unicode: true);
+  
   String _baseUrl = _defaultBaseUrl;
   AIProviderType _providerType = AIProviderType.ollama;
   final DevLogger _logger = DevLogger();
@@ -190,7 +197,7 @@ $sample
       {"role": "user", "content": promptContent}
     ], options: {
       "num_predict": 3000,
-      "timeout": 180000, // 3 minutes timeout for glossary generation
+      "timeout": _glossaryTimeoutMs,
     });
 
     final List<String> lines = response.split('\n');
@@ -275,7 +282,7 @@ $sample
         // Skip if vietnamese translation is too long (likely garbage)
         if (vietnamese.length > 100) continue;
         // Skip if original or vietnamese contains only punctuation/numbers
-        if (RegExp(r'^[\s\d\p{P}]+$', unicode: true).hasMatch(original)) continue;
+        if (_punctuationOnlyRegex.hasMatch(original)) continue;
         cleanBuffer.writeln('"$original","$vietnamese"');
       }
     }
@@ -397,8 +404,7 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
     }
 
     // Retry logic for garbage output
-    const maxRetries = 2;
-    for (int attempt = 0; attempt <= maxRetries; attempt++) {
+    for (int attempt = 0; attempt <= _maxRetries; attempt++) {
       final rawResponse = await chatCompletion(modelName: modelName, messages: [
         {"role": "system", "content": finalSystemPrompt},
         {
@@ -413,21 +419,21 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
       final cleaned = _cleanResponse(rawResponse, sourceLanguage, targetLanguage);
 
       // If output is not garbage or this is the last attempt, return it
-      if (!_isGarbageOutput(cleaned) || attempt == maxRetries) {
+      if (!_isGarbageOutput(cleaned) || attempt == _maxRetries) {
         // If still garbage after all retries, return the original chunk with a marker
         // This ensures we don't lose content
         if (_isGarbageOutput(cleaned)) {
           _logger.warning('AIService', 
-              'Garbage output detected after $maxRetries retries. Returning original chunk.');
+              'Garbage output detected after $_maxRetries retries. Returning original chunk.');
           return "[TRANSLATION FAILED - ORIGINAL TEXT]\n$chunk";
         }
         return cleaned;
       }
 
       _logger.warning('AIService', 
-          'Garbage output detected (attempt ${attempt + 1}/$maxRetries), retrying...');
+          'Garbage output detected (attempt ${attempt + 1}/$_maxRetries), retrying...');
       // Small delay before retry
-      await Future.delayed(const Duration(milliseconds: 500));
+      await Future.delayed(_retryDelay);
     }
 
     return ""; // Should never reach here
@@ -559,9 +565,31 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
     return clean.trim();
   }
 
-  /// Public method for testing - cleans response text
-  /// [targetLang] is the target language for translation
-  /// [sourceLang] is optional, defaults to 'Tiếng Trung' for backward compatibility
+  /// Public wrapper for testing the response cleaning functionality.
+  /// 
+  /// This method sanitizes raw AI response text by:
+  /// - Removing markdown code blocks
+  /// - Normalizing Chinese quotes and punctuation
+  /// - Removing Chinese characters when target is Vietnamese
+  /// - Cleaning up garbage characters and repeated punctuation
+  /// - Removing prompt repetition patterns
+  /// 
+  /// Parameters:
+  /// - [raw]: The raw AI response text to be cleaned
+  /// - [targetLang]: The target language (e.g., 'Tiếng Việt', 'Tiếng Anh')
+  /// - [sourceLang]: The source language, defaults to 'Tiếng Trung' for backward compatibility
+  /// 
+  /// Returns the sanitized text string.
+  /// 
+  /// Example:
+  /// ```dart
+  /// final aiService = AIService();
+  /// final cleaned = aiService.cleanResponse(
+  ///   'Huyền Vân Điện (玄云殿)',
+  ///   'Tiếng Việt',
+  /// );
+  /// // Returns: 'Huyền Vân Điện'
+  /// ```
   String cleanResponse(String raw, String targetLang, [String sourceLang = 'Tiếng Trung']) {
     return _cleanResponse(raw, sourceLang, targetLang);
   }
