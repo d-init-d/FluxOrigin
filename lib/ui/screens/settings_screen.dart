@@ -106,10 +106,35 @@ class _SettingsScreenState extends State<SettingsScreen>
         ? AIProviderType.lmStudio
         : AIProviderType.ollama;
 
-    final (success, message) =
+    final (success, errorCode, modelCount) =
         await _aiService.checkConnection(url: url, providerType: providerType);
 
     if (mounted) {
+      final lang = context.read<ConfigProvider>().appLanguage;
+      String message;
+
+      if (success) {
+        // Build localized success message
+        final key = provider == AIProvider.lmStudio
+            ? 'lmstudio_connection_success'
+            : 'ollama_connection_success';
+        message = AppStrings.get(lang, key)
+            .replaceAll('@count', modelCount.toString());
+      } else {
+        // Build localized error message
+        if (errorCode != null && errorCode.startsWith('error_status:')) {
+          final statusCode = errorCode.split(':')[1];
+          message = AppStrings.get(lang, 'connection_error_status')
+              .replaceAll('@code', statusCode);
+        } else if (errorCode == 'error_timeout') {
+          message = AppStrings.get(lang, 'connection_error_timeout');
+        } else if (errorCode == 'error_connect') {
+          message = AppStrings.get(lang, 'connection_error_connect');
+        } else {
+          message = AppStrings.get(lang, 'connection_error_generic');
+        }
+      }
+
       setState(() {
         _isCheckingConnection = false;
         _connectionStatus = message;
@@ -298,6 +323,7 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   void _showManageModelsDialog(BuildContext context) {
+    final lang = context.read<ConfigProvider>().appLanguage;
     showDialog(
       context: context,
       builder: (context) => _ManageModelsDialog(
@@ -305,6 +331,7 @@ class _SettingsScreenState extends State<SettingsScreen>
         installedModels: _installedModels,
         aiService: _aiService,
         onModelsChanged: _checkInstalledModels,
+        lang: lang,
       ),
     );
   }
@@ -559,7 +586,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Chọn nguồn AI để sử dụng cho dịch thuật',
+                        AppStrings.get(lang, 'ai_provider_subtitle'),
                         style: TextStyle(
                           fontSize: 12,
                           color: widget.isDark
@@ -629,8 +656,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                         const SizedBox(height: 4),
                         Text(
                           config.aiProvider == AIProvider.lmStudio
-                              ? 'Địa chỉ kết nối tới LM Studio (mặc định: http://localhost:1234)'
-                              : 'Địa chỉ kết nối tới Ollama (mặc định: http://localhost:11434)',
+                              ? AppStrings.get(lang, 'lmstudio_url_subtitle')
+                              : AppStrings.get(lang, 'ollama_url_subtitle'),
                           style: TextStyle(
                             fontSize: 12,
                             color: widget.isDark
@@ -721,8 +748,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                                     ),
                               label: Text(
                                 _isCheckingConnection
-                                    ? 'Đang kiểm tra...'
-                                    : 'Kiểm tra kết nối',
+                                    ? AppStrings.get(
+                                        lang, 'checking_connection')
+                                    : AppStrings.get(lang, 'check_connection'),
                                 style: const TextStyle(fontSize: 13),
                               ),
                               style: ElevatedButton.styleFrom(
@@ -804,7 +832,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    'LM Studio: Hãy đảm bảo đã bật Local Server trong LM Studio và đã load model trước khi sử dụng.',
+                                    AppStrings.get(lang, 'lmstudio_note'),
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: Colors.blue[700],
@@ -835,10 +863,11 @@ class _SettingsScreenState extends State<SettingsScreen>
                   ),
                 ),
                 child: _SettingRow(
-                  title: 'Mô hình dịch thuật',
+                  title: AppStrings.get(lang, 'translation_model'),
                   subtitle: _installedModels.isEmpty
-                      ? 'Chưa có model nào. Hãy kiểm tra kết nối Ollama.'
-                      : 'Chọn từ ${_installedModels.length} model đã cài đặt',
+                      ? AppStrings.get(lang, 'no_models_check_connection')
+                      : AppStrings.get(lang, 'select_from_models').replaceAll(
+                          '{count}', _installedModels.length.toString()),
                   isDark: widget.isDark,
                   trailing: MouseRegion(
                     cursor: SystemMouseCursors.click,
@@ -869,7 +898,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                             Flexible(
                               child: Text(
                                 _installedModels.isEmpty
-                                    ? 'Không có model'
+                                    ? AppStrings.get(lang, 'no_model_available')
                                     : context
                                         .watch<ConfigProvider>()
                                         .selectedModel,
@@ -999,8 +1028,10 @@ class _SettingsScreenState extends State<SettingsScreen>
                   onTap: () => _showManageModelsDialog(context),
                   borderRadius: BorderRadius.circular(12),
                   child: _SettingRow(
-                    title: 'Quản lý Model đã tải',
-                    subtitle: '${_installedModels.length} model đã cài đặt',
+                    title: AppStrings.get(lang, 'manage_models'),
+                    subtitle: AppStrings.get(lang, 'models_installed_count')
+                        .replaceAll(
+                            '{count}', _installedModels.length.toString()),
                     isDark: widget.isDark,
                     trailing: FaIcon(
                       FontAwesomeIcons.hardDrive,
@@ -1018,7 +1049,7 @@ class _SettingsScreenState extends State<SettingsScreen>
               // Translation Configuration Section
               _SectionHeader(
                 icon: FontAwesomeIcons.gears,
-                title: 'CẤU HÌNH DỊCH THUẬT',
+                title: AppStrings.get(lang, 'translation_config_section'),
                 isDark: widget.isDark,
               ),
               const SizedBox(height: 16),
@@ -1053,7 +1084,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Thư mục dự án',
+                                  AppStrings.get(lang, 'project_folder'),
                                   style: TextStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.w500,
@@ -1066,7 +1097,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                                 Text(
                                   config.isConfigured
                                       ? config.projectPath
-                                      : 'Chưa cấu hình',
+                                      : AppStrings.get(lang, 'not_configured'),
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: widget.isDark
@@ -1252,12 +1283,14 @@ class _ManageModelsDialog extends StatefulWidget {
   final List<String> installedModels;
   final AIService aiService;
   final VoidCallback onModelsChanged;
+  final String lang;
 
   const _ManageModelsDialog({
     required this.isDark,
     required this.installedModels,
     required this.aiService,
     required this.onModelsChanged,
+    required this.lang,
   });
 
   @override
@@ -1293,13 +1326,17 @@ class _ManageModelsDialogState extends State<_ManageModelsDialog> {
         widget.onModelsChanged();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Đã xóa model $modelName')),
+            SnackBar(
+                content: Text(
+                    '${AppStrings.get(widget.lang, 'deleted_model')} $modelName')),
           );
         }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Xóa model $modelName thất bại')),
+            SnackBar(
+                content: Text(
+                    '${AppStrings.get(widget.lang, 'delete_fail')} $modelName')),
           );
         }
       }
@@ -1313,13 +1350,13 @@ class _ManageModelsDialogState extends State<_ManageModelsDialog> {
         backgroundColor: widget.isDark ? AppColors.darkSurface : Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
-          'Xác nhận xóa',
+          AppStrings.get(widget.lang, 'delete_model_confirm'),
           style: TextStyle(
             color: widget.isDark ? Colors.white : AppColors.lightPrimary,
           ),
         ),
         content: Text(
-          'Bạn có chắc muốn xóa model "$modelName"?',
+          '${AppStrings.get(widget.lang, 'delete_model_question')} "$modelName"?',
           style: TextStyle(
             color: widget.isDark ? Colors.grey[300] : Colors.grey[700],
           ),
@@ -1328,7 +1365,7 @@ class _ManageModelsDialogState extends State<_ManageModelsDialog> {
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text(
-              'Hủy',
+              AppStrings.get(widget.lang, 'cancel'),
               style: TextStyle(
                 color: widget.isDark ? Colors.grey[400] : Colors.grey[600],
               ),
@@ -1346,7 +1383,7 @@ class _ManageModelsDialogState extends State<_ManageModelsDialog> {
                 borderRadius: BorderRadius.circular(8),
               ),
             ),
-            child: const Text('Xóa'),
+            child: Text(AppStrings.get(widget.lang, 'delete')),
           ),
         ],
       ),
@@ -1393,7 +1430,7 @@ class _ManageModelsDialogState extends State<_ManageModelsDialog> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      'Quản lý Model đã tải',
+                      AppStrings.get(widget.lang, 'manage_models_title'),
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
@@ -1440,7 +1477,7 @@ class _ManageModelsDialogState extends State<_ManageModelsDialog> {
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            'Chưa có model nào được tải',
+                            AppStrings.get(widget.lang, 'no_models_installed'),
                             style: TextStyle(
                               fontSize: 14,
                               color: widget.isDark
@@ -1517,7 +1554,8 @@ class _ManageModelsDialogState extends State<_ManageModelsDialog> {
                                   ),
                                   padding: EdgeInsets.zero,
                                   constraints: const BoxConstraints(),
-                                  tooltip: 'Xóa model',
+                                  tooltip: AppStrings.get(
+                                      widget.lang, 'delete_model_tooltip'),
                                 ),
                             ],
                           ),
@@ -1557,9 +1595,9 @@ class _ManageModelsDialogState extends State<_ManageModelsDialog> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                    child: const Text(
-                      'Đóng',
-                      style: TextStyle(
+                    child: Text(
+                      AppStrings.get(widget.lang, 'close'),
+                      style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
                       ),

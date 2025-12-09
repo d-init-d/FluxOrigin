@@ -30,6 +30,32 @@ class AppStrings {
       'no_models_installed': 'Chưa có model nào được tải',
       'delete_model_tooltip': 'Xóa model',
       'close': 'Đóng',
+      // AI Provider Settings
+      'ai_provider_subtitle': 'Chọn nguồn AI để sử dụng cho dịch thuật',
+      'ollama_url_subtitle':
+          'Địa chỉ kết nối tới Ollama (mặc định: http://localhost:11434)',
+      'lmstudio_url_subtitle':
+          'Địa chỉ kết nối tới LM Studio (mặc định: http://localhost:1234)',
+      'checking_connection': 'Đang kiểm tra...',
+      'check_connection': 'Kiểm tra kết nối',
+      'lmstudio_note':
+          'LM Studio: Hãy đảm bảo đã bật Local Server trong LM Studio và đã load model trước khi sử dụng.',
+      'no_models_check_connection':
+          'Chưa có model nào. Hãy kiểm tra kết nối Ollama.',
+      'select_from_models': 'Chọn từ {count} model đã cài đặt',
+      'no_model_available': 'Không có model',
+      'models_installed_count': '{count} model đã cài đặt',
+      // Connection messages
+      'ollama_connection_success':
+          'Kết nối Ollama thành công! Đã tìm thấy @count model.',
+      'lmstudio_connection_success':
+          'Kết nối LM Studio thành công! Đã tìm thấy @count model.',
+      'connection_error_timeout':
+          'Hết thời gian chờ. Kiểm tra lại URL hoặc server có đang chạy không.',
+      'connection_error_connect':
+          'Không thể kết nối tới server. Hãy đảm bảo server đang chạy.',
+      'connection_error_status': 'Lỗi: Server trả về mã @code',
+      'connection_error_generic': 'Lỗi kết nối: Không thể kết nối tới server.',
       // Sidebar
       'sidebar_translate': 'Dịch thuật',
       'sidebar_history': 'Lịch sử',
@@ -125,7 +151,8 @@ class AppStrings {
       'lang_cn': 'Tiếng Trung',
       'default_label': 'Mặc định',
       // Translation Status Messages
-      'status_restoring_progress': 'Đã tìm thấy bản lưu cũ. Đang khôi phục tiến độ...',
+      'status_restoring_progress':
+          'Đã tìm thấy bản lưu cũ. Đang khôi phục tiến độ...',
       'status_reading_file': 'Đang đọc file gốc...',
       'status_analyzing': 'Đang phân tích và chia nhỏ văn bản...',
       'status_detecting_genre': 'AI đang đọc thử để xác định thể loại...',
@@ -166,6 +193,33 @@ class AppStrings {
       'no_models_installed': 'No models installed',
       'delete_model_tooltip': 'Delete model',
       'close': 'Close',
+      // AI Provider Settings
+      'ai_provider_subtitle': 'Select AI source for translation',
+      'ollama_url_subtitle':
+          'Ollama connection address (default: http://localhost:11434)',
+      'lmstudio_url_subtitle':
+          'LM Studio connection address (default: http://localhost:1234)',
+      'checking_connection': 'Checking...',
+      'check_connection': 'Test Connection',
+      'lmstudio_note':
+          'LM Studio: Make sure to enable Local Server in LM Studio and load a model before using.',
+      'no_models_check_connection':
+          'No models found. Please check Ollama connection.',
+      'select_from_models': 'Select from {count} installed models',
+      'no_model_available': 'No models',
+      'models_installed_count': '{count} models installed',
+      // Connection messages
+      'ollama_connection_success':
+          'Ollama connected successfully! Found @count models.',
+      'lmstudio_connection_success':
+          'LM Studio connected successfully! Found @count models.',
+      'connection_error_timeout':
+          'Connection timed out. Please check the URL or if the server is running.',
+      'connection_error_connect':
+          'Cannot connect to server. Please make sure the server is running.',
+      'connection_error_status': 'Error: Server returned status @code',
+      'connection_error_generic':
+          'Connection error: Unable to connect to server.',
       // Sidebar
       'sidebar_translate': 'Translate',
       'sidebar_history': 'History',

@@ -8,6 +8,7 @@ class SidebarItem extends StatefulWidget {
   final bool isActive;
   final VoidCallback onTap;
   final bool isDark;
+  final bool showBadge; // Stealth Mode: Show red dot for connection issues
 
   const SidebarItem({
     super.key,
@@ -16,6 +17,7 @@ class SidebarItem extends StatefulWidget {
     required this.isActive,
     required this.onTap,
     required this.isDark,
+    this.showBadge = false,
   });
 
   @override
@@ -60,10 +62,29 @@ class _SidebarItemState extends State<SidebarItem> {
           ),
           child: Row(
             children: [
-              FaIcon(
-                widget.icon,
-                size: 18,
-                color: textColor,
+              // Stealth Mode: Wrap icon in Stack for badge overlay
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  FaIcon(
+                    widget.icon,
+                    size: 18,
+                    color: textColor,
+                  ),
+                  if (widget.showBadge)
+                    Positioned(
+                      right: -4,
+                      top: -4,
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: Colors.redAccent,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(width: 12),
               Expanded(

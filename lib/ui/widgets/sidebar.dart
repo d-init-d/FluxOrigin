@@ -22,6 +22,7 @@ class Sidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final lang = context.watch<ConfigProvider>().appLanguage;
+    final ollamaConnected = context.watch<ConfigProvider>().ollamaConnected;
     return Container(
       width: 250,
       decoration: BoxDecoration(
@@ -117,6 +118,8 @@ class Sidebar extends StatelessWidget {
                     isActive: selectedIndex == 3,
                     onTap: () => onItemTap(3),
                     isDark: isDark,
+                    showBadge:
+                        !ollamaConnected, // Stealth Mode: Show red dot if disconnected
                   ),
                   SidebarItem(
                     icon: FontAwesomeIcons.bug,

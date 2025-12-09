@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as path;
 
@@ -21,6 +22,7 @@ class ConfigProvider extends ChangeNotifier {
   AIProvider _aiProvider = AIProvider.ollama;
   String _appLanguage = 'vi'; // Default language
   bool _isLoading = true;
+  bool _ollamaConnected = true; // Stealth Mode: AI provider connection status
 
   String get projectPath => _projectPath;
   String get selectedModel => _selectedModel;
@@ -29,6 +31,7 @@ class ConfigProvider extends ChangeNotifier {
   AIProvider get aiProvider => _aiProvider;
   String get appLanguage => _appLanguage;
   bool get isLoading => _isLoading;
+  bool get ollamaConnected => _ollamaConnected;
 
   /// Get the current AI URL based on selected provider
   String get currentAiUrl =>
@@ -119,6 +122,20 @@ class ConfigProvider extends ChangeNotifier {
     await prefs.setString(_appLanguageKey, lang);
 
     _appLanguage = lang;
+    notifyListeners();
+  }
+
+  /// Stealth Mode: Check AI provider connection status silently
+  /// Updates ollamaConnected state without showing any dialogs
+  Future<void> checkOllamaHealth() async {
+    try {
+      final response = await http
+          .get(Uri.parse('$currentAiUrl/'))
+          .timeout(const Duration(seconds: 3));
+      _ollamaConnected = (response.statusCode == 200);
+    } catch (e) {
+      _ollamaConnected = false;
+    }
     notifyListeners();
   }
 }

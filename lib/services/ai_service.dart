@@ -52,8 +52,9 @@ class AIService {
   String get _deleteUrl => '$_baseUrl/api/delete';
 
   /// Check connection to AI server
-  /// Returns a tuple of (success, message)
-  Future<(bool, String)> checkConnection(
+  /// Returns a tuple of (success, errorCode, modelCount)
+  /// errorCode is null on success, or one of: 'error_status', 'error_connect', 'error_timeout', 'error_generic'
+  Future<(bool, String?, int)> checkConnection(
       {String? url, AIProviderType? providerType}) async {
     final testUrl = url ?? _baseUrl;
     final provider = providerType ?? _providerType;
@@ -77,34 +78,22 @@ class AIService {
         if (provider == AIProviderType.lmStudio) {
           // LM Studio returns { data: [...] }
           final List<dynamic> models = data['data'] ?? [];
-          return (
-            true,
-            'Kết nối LM Studio thành công! Đã tìm thấy ${models.length} model.'
-          );
+          return (true, null, models.length);
         } else {
           // Ollama returns { models: [...] }
           final List<dynamic> models = data['models'] ?? [];
-          return (
-            true,
-            'Kết nối Ollama thành công! Đã tìm thấy ${models.length} model.'
-          );
+          return (true, null, models.length);
         }
       } else {
-        return (false, 'Lỗi: Server trả về mã ${response.statusCode}');
+        return (false, 'error_status:${response.statusCode}', 0);
       }
-    } on http.ClientException catch (e) {
-      return (false, 'Không thể kết nối: ${e.message}');
+    } on http.ClientException {
+      return (false, 'error_connect', 0);
     } catch (e) {
       if (e.toString().contains('TimeoutException')) {
-        return (
-          false,
-          'Hết thời gian chờ. Kiểm tra lại URL hoặc server có đang chạy không.'
-        );
+        return (false, 'error_timeout', 0);
       }
-      return (
-        false,
-        'Lỗi kết nối: Không thể kết nối tới server. Hãy đảm bảo server đang chạy.'
-      );
+      return (false, 'error_generic', 0);
     }
   }
 
@@ -600,11 +589,13 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
 
       // Get timeout from options, default to 5 minutes (300000ms)
       final int timeoutMs = options?['timeout'] ?? 300000;
-      final response = await http.post(
+      final response = await http
+          .post(
         Uri.parse(_chatUrl),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode(body),
-      ).timeout(
+      )
+          .timeout(
         Duration(milliseconds: timeoutMs),
         onTimeout: () {
           throw Exception(
