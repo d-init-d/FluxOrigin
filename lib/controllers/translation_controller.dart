@@ -320,9 +320,17 @@ Resume: $resume
     _logger.info('Translation', 'Translation complete! Finalizing...');
     onUpdate(AppStrings.get(appLanguage, 'status_merging'), 1.0);
     final StringBuffer finalContent = StringBuffer();
-    for (final chunk in progress.translatedChunks) {
-      if (chunk != null) {
+    for (int i = 0; i < progress.translatedChunks.length; i++) {
+      final chunk = progress.translatedChunks[i];
+      if (chunk != null && chunk.isNotEmpty) {
         finalContent.write(chunk);
+        finalContent.write("\n\n");
+      } else {
+        // If translation is missing, use the original raw chunk with a marker
+        _logger.warning('Translation', 
+            'Chunk ${i + 1} has no translation, using original');
+        finalContent.write("[TRANSLATION MISSING - ORIGINAL TEXT]\n");
+        finalContent.write(progress.rawChunks[i]);
         finalContent.write("\n\n");
       }
     }

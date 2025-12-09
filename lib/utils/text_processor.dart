@@ -47,6 +47,11 @@ class TextProcessor {
         }
       }
 
+      // Safety check: Ensure we always make progress to avoid infinite loop
+      if (endPos <= currentPos) {
+        endPos = min(currentPos + targetSize, length);
+      }
+
       final String chunk = text.substring(currentPos, endPos).trim();
       if (chunk.isNotEmpty) {
         chunks.add(chunk);

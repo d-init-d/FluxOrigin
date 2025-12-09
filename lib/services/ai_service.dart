@@ -189,90 +189,94 @@ $sample
     final response = await chatCompletion(modelName: modelName, messages: [
       {"role": "user", "content": promptContent}
     ], options: {
-      "num_predict": 3000
+      "num_predict": 3000,
+      "timeout": 180000, // 3 minutes timeout for glossary generation
     });
 
     final List<String> lines = response.split('\n');
     final StringBuffer cleanBuffer = StringBuffer();
 
-    for (final line in lines) {
-      // 1. Xóa các dòng Header nếu AI lỡ sinh ra
-      lines.removeWhere((line) {
-        final lower = line.toLowerCase().trim();
-        return lower.startsWith('original') ||
-            lower.startsWith('term') ||
-            lower.startsWith('từ gốc') ||
-            lower.startsWith('----');
-      });
+    // 1. Filter out header lines first (create a new list to avoid concurrent modification)
+    final filteredLines = lines.where((line) {
+      final lower = line.toLowerCase().trim();
+      return !lower.startsWith('original') &&
+          !lower.startsWith('term') &&
+          !lower.startsWith('từ gốc') &&
+          !lower.startsWith('----') &&
+          !lower.startsWith('```'); // Also filter markdown code blocks
+    }).toList();
 
-      for (var i = 0; i < lines.length; i++) {
-        String line = lines[i].trim();
-        if (line.isEmpty) continue;
+    // 2. Process each line
+    for (var i = 0; i < filteredLines.length; i++) {
+      String line = filteredLines[i].trim();
+      if (line.isEmpty) continue;
 
-        // 2. Xử lý dấu phẩy cuối dòng nếu có (ví dụ: "Term,Viet,")
-        if (line.endsWith(',')) {
-          line = line.substring(0, line.length - 1).trim();
-        }
+      // Remove trailing comma if present
+      if (line.endsWith(',')) {
+        line = line.substring(0, line.length - 1).trim();
+      }
 
-        String? original;
-        String? vietnamese;
+      String? original;
+      String? vietnamese;
 
-        // 3. Ưu tiên dùng thư viện CSV để parse cho chuẩn
-        try {
-          List<List<dynamic>> rows = const CsvToListConverter()
-              .convert(line, shouldParseNumbers: false);
-          if (rows.isNotEmpty && rows[0].isNotEmpty) {
-            final row = rows[0];
-            if (row.length >= 2) {
-              original = row[0].toString().trim();
-              vietnamese = row[1].toString().trim();
-            } else if (row.length == 1 && line.contains(',')) {
-              // Fallback: CSV parser có thể fail nếu quote không đóng, thử split thủ công
-              final parts = line.split(',');
-              if (parts.length >= 2) {
-                original = parts[0].trim();
-                vietnamese = parts.sublist(1).join(',').trim();
-              }
-            }
-          }
-        } catch (e) {
-          // Fallback nếu CSV parser lỗi
-        }
-
-        // 4. Nếu CSV parser không ra, thử split thủ công thông minh
-        if (original == null || vietnamese == null) {
-          if (line.contains(':')) {
-            final parts = line.split(':');
+      // 3. Try CSV parser first
+      try {
+        List<List<dynamic>> rows = const CsvToListConverter()
+            .convert(line, shouldParseNumbers: false);
+        if (rows.isNotEmpty && rows[0].isNotEmpty) {
+          final row = rows[0];
+          if (row.length >= 2) {
+            original = row[0].toString().trim();
+            vietnamese = row[1].toString().trim();
+          } else if (row.length == 1 && line.contains(',')) {
+            // Fallback: CSV parser may fail if quote is not closed
+            final parts = line.split(',');
             if (parts.length >= 2) {
               original = parts[0].trim();
-              vietnamese = parts.sublist(1).join(':').trim();
-            }
-          } else if (line.contains('-')) {
-            // Chỉ split bằng '-' nếu không phải là từ ghép (ví dụ: "Sino-Vietnamese")
-            // Logic đơn giản: split ở dấu gạch ngang đầu tiên có khoảng trắng bao quanh hoặc là dấu gạch ngang duy nhất
-            if (line.contains(' - ')) {
-              final parts = line.split(' - ');
-              if (parts.length >= 2) {
-                original = parts[0].trim();
-                vietnamese = parts.sublist(1).join(' - ').trim();
-              }
-            } else {
-              final parts = line.split('-');
-              if (parts.length >= 2) {
-                original = parts[0].trim();
-                vietnamese = parts.sublist(1).join('-').trim();
-              }
+              vietnamese = parts.sublist(1).join(',').trim();
             }
           }
         }
+      } catch (e) {
+        // CSV parser error, will try fallback methods
+      }
 
-        if (original != null &&
-            vietnamese != null &&
-            original.isNotEmpty &&
-            vietnamese.isNotEmpty) {
-          if (vietnamese.length > 100) continue;
-          cleanBuffer.writeln('"$original","$vietnamese"');
+      // 4. Fallback parsing methods
+      if (original == null || vietnamese == null) {
+        if (line.contains(':')) {
+          final parts = line.split(':');
+          if (parts.length >= 2) {
+            original = parts[0].trim();
+            vietnamese = parts.sublist(1).join(':').trim();
+          }
+        } else if (line.contains('-')) {
+          // Split by '-' only if it's a separator (has spaces around)
+          if (line.contains(' - ')) {
+            final parts = line.split(' - ');
+            if (parts.length >= 2) {
+              original = parts[0].trim();
+              vietnamese = parts.sublist(1).join(' - ').trim();
+            }
+          } else {
+            final parts = line.split('-');
+            if (parts.length >= 2) {
+              original = parts[0].trim();
+              vietnamese = parts.sublist(1).join('-').trim();
+            }
+          }
         }
+      }
+
+      // 5. Validate and add to buffer
+      if (original != null &&
+          vietnamese != null &&
+          original.isNotEmpty &&
+          vietnamese.isNotEmpty) {
+        // Skip if vietnamese translation is too long (likely garbage)
+        if (vietnamese.length > 100) continue;
+        // Skip if original or vietnamese contains only punctuation/numbers
+        if (RegExp(r'^[\s\d\p{P}]+$', unicode: true).hasMatch(original)) continue;
+        cleanBuffer.writeln('"$original","$vietnamese"');
       }
     }
 
@@ -392,24 +396,41 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
       finalSystemPrompt += "\n\n### GLOSSARY:\n$formattedGlossary";
     }
 
-    final rawResponse = await chatCompletion(modelName: modelName, messages: [
-      {"role": "system", "content": finalSystemPrompt},
-      {
-        "role": "user",
-        "content":
-            "Translate the following text from $sourceLanguage into $targetLanguage:\n\n$chunk"
+    // Retry logic for garbage output
+    const maxRetries = 2;
+    for (int attempt = 0; attempt <= maxRetries; attempt++) {
+      final rawResponse = await chatCompletion(modelName: modelName, messages: [
+        {"role": "system", "content": finalSystemPrompt},
+        {
+          "role": "user",
+          "content":
+              "Translate the following text from $sourceLanguage into $targetLanguage:\n\n$chunk"
+        }
+      ], options: {
+        "timeout": 28800000
+      });
+
+      final cleaned = _cleanResponse(rawResponse, sourceLanguage, targetLanguage);
+
+      // If output is not garbage or this is the last attempt, return it
+      if (!_isGarbageOutput(cleaned) || attempt == maxRetries) {
+        // If still garbage after all retries, return the original chunk with a marker
+        // This ensures we don't lose content
+        if (_isGarbageOutput(cleaned)) {
+          _logger.warning('AIService', 
+              'Garbage output detected after $maxRetries retries. Returning original chunk.');
+          return "[TRANSLATION FAILED - ORIGINAL TEXT]\n$chunk";
+        }
+        return cleaned;
       }
-    ], options: {
-      "timeout": 28800000
-    });
 
-    final cleaned = _cleanResponse(rawResponse, sourceLanguage, targetLanguage);
-
-    if (_isGarbageOutput(cleaned)) {
-      return "";
+      _logger.warning('AIService', 
+          'Garbage output detected (attempt ${attempt + 1}/$maxRetries), retrying...');
+      // Small delay before retry
+      await Future.delayed(const Duration(milliseconds: 500));
     }
 
-    return cleaned;
+    return ""; // Should never reach here
   }
 
   /// Checks if output is garbage (only punctuation, symbols, or very short)
@@ -433,7 +454,11 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
 
     String clean = raw.trim();
 
-    // Normalize Chinese quotes to standard quotes (áp dụng cho mọi ngôn ngữ nguồn)
+    // Remove markdown code blocks that AI might wrap output in
+    clean = clean.replaceAll(RegExp(r'```[\s\S]*?```'), '');
+    clean = clean.replaceAll(RegExp(r'```.*$', multiLine: true), '');
+
+    // Normalize Chinese quotes to standard quotes (apply for all source languages)
     clean = clean.replaceAll('"', '"');
     clean = clean.replaceAll('"', '"');
     clean = clean.replaceAll('「', '"');
@@ -441,7 +466,7 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
     clean = clean.replaceAll('『', '"');
     clean = clean.replaceAll('』', '"');
 
-    // Chỉ normalize dấu câu Trung Quốc nếu nguồn là Tiếng Trung
+    // Normalize Chinese punctuation if source is Chinese
     if (sourceLang == 'Tiếng Trung') {
       clean = clean.replaceAll('。', '. ');
       clean = clean.replaceAll('，', ', ');
@@ -488,13 +513,15 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
     if (processedLines.isNotEmpty) {
       final firstLine = processedLines.first.toLowerCase();
       if (firstLine.contains("dịch đoạn văn bản") ||
-          firstLine.contains("translate the following")) {
+          firstLine.contains("translate the following") ||
+          firstLine.contains("here is the") ||
+          firstLine.contains("translation:")) {
         clean = processedLines.sublist(1).join('\n').trim();
       }
     }
 
-    // Xóa ký tự Trung Quốc nếu đích là Tiếng Việt (bất kể ngôn ngữ nguồn)
-    // Lý do: Model Qwen đôi khi bị ảo giác chèn tiếng Trung vào bản dịch Anh-Việt
+    // Remove Chinese characters if target is Vietnamese (regardless of source)
+    // Reason: Qwen model sometimes hallucinates Chinese characters into Vietnamese translations
     if (targetLang == 'Tiếng Việt') {
       // Remove parenthesized Chinese: (黑铁剑) or [黑铁剑] or （黑铁剑）
       clean = clean.replaceAll(RegExp(r'\([^)]*[\u4e00-\u9fa5]+[^)]*\)'), '');
@@ -504,6 +531,10 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
       // Remove loose Chinese characters
       clean = clean.replaceAll(RegExp(r'[\u4e00-\u9fa5]+'), '');
 
+      // Remove other garbage characters that AI might produce
+      // Zero-width characters, ideographic space, etc.
+      clean = clean.replaceAll(RegExp(r'[\u200b-\u200f\u2028-\u202f\u3000\ufeff]'), '');
+
       // Clean up hanging punctuation left after Chinese removal
       clean = clean.replaceAll(RegExp(r'(\s*[,.:;]\s*){2,}'), ' ');
 
@@ -511,14 +542,28 @@ Use this context to maintain narrative flow, consistent pronouns, and proper sub
       clean = clean.replaceAll(RegExp(r'^\s*[,.:;]+\s*', multiLine: true), '');
 
       // Remove trailing orphan punctuation
-      clean =
-          clean.replaceAll(RegExp(r'\s+[,.:;]+\s*' r'$', multiLine: true), '');
+      clean = clean.replaceAll(RegExp(r'\s+[,.:;]+\s*' r'$', multiLine: true), '');
+
+      // Remove repeated punctuation patterns (garbage)
+      clean = clean.replaceAll(RegExp(r'[.]{4,}'), '...');
+      clean = clean.replaceAll(RegExp(r'[,]{2,}'), ',');
+      clean = clean.replaceAll(RegExp(r'[!]{2,}'), '!');
+      clean = clean.replaceAll(RegExp(r'[?]{2,}'), '?');
     }
 
     // Final cleanup: Fix double/multiple spaces
     clean = clean.replaceAll(RegExp(r' {2,}'), ' ');
+    // Fix multiple newlines
+    clean = clean.replaceAll(RegExp(r'\n{3,}'), '\n\n');
 
     return clean.trim();
+  }
+
+  /// Public method for testing - cleans response text
+  /// [targetLang] is the target language for translation
+  /// [sourceLang] is optional, defaults to 'Tiếng Trung' for backward compatibility
+  String cleanResponse(String raw, String targetLang, [String sourceLang = 'Tiếng Trung']) {
+    return _cleanResponse(raw, sourceLang, targetLang);
   }
 
   /// LAYER 1: Strict Model Parameters in chatCompletion
