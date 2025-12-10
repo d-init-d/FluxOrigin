@@ -1,7 +1,7 @@
 name: flux_origin
 description: A translation desktop application for Windows
 publish_to: 'none'
-version: 2.0.1+1
+version: 2.0.2+1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -51,7 +51,7 @@ msix_config:
   publisher_display_name: d-init-d
   identity_name: d-init-d.FluxOrigin  # QUAN TRỌNG: Nếu đăng Store, phải lấy tên Identity từ Partner Center
   publisher: CN=94D446F9-8A96-471F-9749-DFF18CBA6CD8     # QUAN TRỌNG: Nếu đăng Store, phải lấy chuỗi Publisher ID (ví dụ: CN=92837...) từ Partner Center
-  msix_version: 2.0.1.0
+  msix_version: 2.0.2.0
   logo_path: D:\FluxOrigin\assets\fluxorigin logo.png
   store: true
   capabilities: "internetClient, internetClientServer"
