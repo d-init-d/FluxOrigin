@@ -52,7 +52,7 @@ msix_config:
   identity_name: d-init-d.FluxOrigin  # QUAN TRỌNG: Nếu đăng Store, phải lấy tên Identity từ Partner Center
   publisher: CN=94D446F9-8A96-471F-9749-DFF18CBA6CD8     # QUAN TRỌNG: Nếu đăng Store, phải lấy chuỗi Publisher ID (ví dụ: CN=92837...) từ Partner Center
   msix_version: 2.0.2.0
-  logo_path: D:\FluxOrigin\assets\fluxorigin logo.png
+  logo_path: assets/fluxorigin logo.png
   store: true
   capabilities: "internetClient, internetClientServer"
   # Các quyền truy cập file nếu app cần (vì MSIX chạy trong sandbox)

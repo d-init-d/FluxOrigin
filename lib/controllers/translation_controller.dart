@@ -16,6 +16,9 @@ class TranslationController {
   final WebSearchService _webSearchService = WebSearchService();
   final DevLogger _logger = DevLogger();
 
+  /// Throttle factor: save progress every N chunks (configurable; default 5)
+  static const int _saveEveryNChunks = 5;
+
   /// Set the base URL for AI API
   void setAIUrl(String url) {
     _aiService.setBaseUrl(url);
@@ -304,11 +307,17 @@ Resume: $resume
               TextProcessor.extractLastSentences(translated, maxLength: 200);
         }
 
-        // CRITICAL: Save after every chunk
-        await progress.saveToFile(progressPath);
+        // Throttled save: only persist every N chunks or on the final chunk
+        final bool isFinalChunk = (i + 1) == total;
+        final bool isThrottleBoundary = ((i + 1) % _saveEveryNChunks) == 0;
+        if (isFinalChunk || isThrottleBoundary) {
+          await progress.saveToFile(progressPath);
+        }
       } catch (e) {
         _logger.error('Translation', 'Error translating chunk ${i + 1}: $e');
         onUpdate("${AppStrings.get(appLanguage, 'status_error')} ${i + 1}: $e", percent);
+        // Save progress before rethrowing so in-progress chunks since last throttle boundary are not lost
+        await progress.saveToFile(progressPath);
         // Simple retry logic: decrement i to retry this chunk next loop
         // Or just throw to stop and let user resume later.
         // For now, let's throw so the loop stops and user can resume.
@@ -368,6 +377,7 @@ Resume: $resume
       } catch (e) {
         // If file is corrupted, start fresh
         debugPrint('Error reading history: $e');
+        _logger.warning('TranslationController', 'Error reading history', details: e.toString());
       }
     }
 
@@ -383,6 +393,7 @@ Resume: $resume
       await historyFile.writeAsString(jsonEncode(history));
     } catch (e) {
       debugPrint('Error saving history: $e');
+      _logger.error('TranslationController', 'Error saving history', details: e.toString());
     }
   }
 
@@ -404,7 +415,7 @@ Resume: $resume
         shouldParseNumbers: false,
       );
     } catch (e) {
-      print("Error parsing AI glossary CSV: $e");
+      _logger.warning('TranslationController', 'Error parsing AI glossary CSV', details: e.toString());
     }
 
     // Create a map from AI data: Original Name -> [Vietnamese Name, Definition]
@@ -431,7 +442,7 @@ Resume: $resume
           shouldParseNumbers: false,
         );
       } catch (e) {
-        print("Error parsing existing glossary CSV: $e");
+        _logger.warning('TranslationController', 'Error parsing existing glossary CSV', details: e.toString());
       }
 
       // User edits take priority
@@ -529,7 +540,7 @@ Resume: $resume
 
       return newCsv;
     } catch (e) {
-      print("Error enriching glossary: $e");
+      _logger.warning('TranslationController', 'Error enriching glossary', details: e.toString());
       // Return original content if enrichment fails to avoid data loss
       return await glossaryFile.readAsString();
     }

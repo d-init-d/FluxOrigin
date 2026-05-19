@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'package:csv/csv.dart';
 import 'package:http/http.dart' as http;
@@ -192,88 +193,99 @@ $sample
       "num_predict": 3000
     });
 
-    final List<String> lines = response.split('\n');
+    return parseGlossaryResponse(response);
+  }
+
+  /// Parses the raw AI glossary response into a clean CSV string.
+  /// Single-pass parser with LinkedHashMap deduplication (first-occurrence wins).
+  String parseGlossaryResponse(String response) {
     final StringBuffer cleanBuffer = StringBuffer();
+    final List<String> lines =
+        response.split('\n').where((l) => l.trim().isNotEmpty).toList();
 
-    for (final line in lines) {
-      // 1. Xóa các dòng Header nếu AI lỡ sinh ra
-      lines.removeWhere((line) {
-        final lower = line.toLowerCase().trim();
-        return lower.startsWith('original') ||
-            lower.startsWith('term') ||
-            lower.startsWith('từ gốc') ||
-            lower.startsWith('----');
-      });
+    // Filter headers exactly once before parsing
+    final filtered = lines.where((l) {
+      final lower = l.toLowerCase().trim();
+      return !(lower.startsWith('original') ||
+          lower.startsWith('term') ||
+          lower.startsWith('từ gốc') ||
+          lower.startsWith('----'));
+    }).toList();
 
-      for (var i = 0; i < lines.length; i++) {
-        String line = lines[i].trim();
-        if (line.isEmpty) continue;
+    // Deduplicate by original term using LinkedHashMap (preserves insertion order)
+    final LinkedHashMap<String, String> seen = LinkedHashMap<String, String>();
 
-        // 2. Xử lý dấu phẩy cuối dòng nếu có (ví dụ: "Term,Viet,")
-        if (line.endsWith(',')) {
-          line = line.substring(0, line.length - 1).trim();
-        }
+    // Single pass over filtered lines
+    for (var i = 0; i < filtered.length; i++) {
+      final currentLine = filtered[i].trim();
+      if (currentLine.isEmpty) continue;
 
-        String? original;
-        String? vietnamese;
+      String? original;
+      String? vietnamese;
 
-        // 3. Ưu tiên dùng thư viện CSV để parse cho chuẩn
-        try {
-          List<List<dynamic>> rows = const CsvToListConverter()
-              .convert(line, shouldParseNumbers: false);
-          if (rows.isNotEmpty && rows[0].isNotEmpty) {
-            final row = rows[0];
-            if (row.length >= 2) {
-              original = row[0].toString().trim();
-              vietnamese = row[1].toString().trim();
-            } else if (row.length == 1 && line.contains(',')) {
-              // Fallback: CSV parser có thể fail nếu quote không đóng, thử split thủ công
-              final parts = line.split(',');
-              if (parts.length >= 2) {
-                original = parts[0].trim();
-                vietnamese = parts.sublist(1).join(',').trim();
-              }
-            }
-          }
-        } catch (e) {
-          // Fallback nếu CSV parser lỗi
-        }
+      // CSV with quotes: "original","vietnamese"
+      final csvPattern = RegExp(r'"([^"]+)"\s*,\s*"([^"]+)"');
+      final csvMatch = csvPattern.firstMatch(currentLine);
+      if (csvMatch != null) {
+        original = csvMatch.group(1)?.trim();
+        vietnamese = csvMatch.group(2)?.trim();
+      }
 
-        // 4. Nếu CSV parser không ra, thử split thủ công thông minh
-        if (original == null || vietnamese == null) {
-          if (line.contains(':')) {
-            final parts = line.split(':');
-            if (parts.length >= 2) {
-              original = parts[0].trim();
-              vietnamese = parts.sublist(1).join(':').trim();
-            }
-          } else if (line.contains('-')) {
-            // Chỉ split bằng '-' nếu không phải là từ ghép (ví dụ: "Sino-Vietnamese")
-            // Logic đơn giản: split ở dấu gạch ngang đầu tiên có khoảng trắng bao quanh hoặc là dấu gạch ngang duy nhất
-            if (line.contains(' - ')) {
-              final parts = line.split(' - ');
-              if (parts.length >= 2) {
-                original = parts[0].trim();
-                vietnamese = parts.sublist(1).join(' - ').trim();
-              }
-            } else {
-              final parts = line.split('-');
-              if (parts.length >= 2) {
-                original = parts[0].trim();
-                vietnamese = parts.sublist(1).join('-').trim();
-              }
-            }
-          }
-        }
-
-        if (original != null &&
-            vietnamese != null &&
-            original.isNotEmpty &&
-            vietnamese.isNotEmpty) {
-          if (vietnamese.length > 100) continue;
-          cleanBuffer.writeln('"$original","$vietnamese"');
+      // Fallback: comma-separated without quotes
+      if (original == null || vietnamese == null) {
+        final commaParts = currentLine.split(',');
+        if (commaParts.length >= 2) {
+          original = commaParts[0].trim();
+          vietnamese = commaParts.sublist(1).join(',').trim();
         }
       }
+
+      // Fallback: colon separator
+      if (original == null || vietnamese == null) {
+        final colonParts = currentLine.split(':');
+        if (colonParts.length >= 2) {
+          original = colonParts[0].trim();
+          vietnamese = colonParts.sublist(1).join(':').trim();
+        }
+      }
+
+      // Fallback: " - " separator
+      if (original == null || vietnamese == null) {
+        final dashParts = currentLine.split(' - ');
+        if (dashParts.length >= 2) {
+          original = dashParts[0].trim();
+          vietnamese = dashParts.sublist(1).join(' - ').trim();
+        }
+      }
+
+      // Fallback: "-" separator (last resort)
+      if (original == null || vietnamese == null) {
+        final hyphenParts = currentLine.split('-');
+        if (hyphenParts.length >= 2) {
+          original = hyphenParts[0].trim();
+          vietnamese = hyphenParts.sublist(1).join('-').trim();
+        }
+      }
+
+      if (original == null ||
+          vietnamese == null ||
+          original.isEmpty ||
+          vietnamese.isEmpty) {
+        continue;
+      }
+
+      // 100-character Vietnamese length filter
+      if (vietnamese.length > 100) continue;
+
+      // Deduplicate: first-occurrence wins
+      if (!seen.containsKey(original)) {
+        seen[original] = vietnamese;
+      }
+    }
+
+    // Emit each entry once
+    for (final entry in seen.entries) {
+      cleanBuffer.writeln('"${entry.key}","${entry.value}"');
     }
 
     return cleanBuffer.toString().trim();

@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import '../theme/config_provider.dart';
 import '../widgets/path_setup_modal.dart';
 import '../../services/ai_service.dart';
+import '../../services/dev_logger.dart';
 import '../../utils/app_strings.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -199,6 +200,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       }
     } catch (e) {
       debugPrint('Error checking installed models: $e');
+      DevLogger().warning('SettingsScreen', 'Error checking installed models', details: e.toString());
       // Optionally show a snackbar or just fail silently
     } finally {
       if (mounted) {

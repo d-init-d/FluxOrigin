@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:html/parser.dart' as html_parser;
+import 'dev_logger.dart';
 
 class WebSearchService {
   /// Tra cứu định nghĩa thuật ngữ.
@@ -16,7 +17,7 @@ class WebSearchService {
         return wikiDefinition;
       }
     } catch (e) {
-      print("Wikipedia lookup failed for '$term' ($langCode): $e");
+      DevLogger().warning('WebSearchService', "Wikipedia lookup failed for '$term' ($langCode)", details: e.toString());
     }
 
     // 2. DuckDuckGo Lookup (Fallback)
@@ -26,7 +27,7 @@ class WebSearchService {
         return ddgDefinition;
       }
     } catch (e) {
-      print("DuckDuckGo lookup failed for '$term': $e");
+      DevLogger().warning('WebSearchService', "DuckDuckGo lookup failed for '$term'", details: e.toString());
     }
 
     return null;

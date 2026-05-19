@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import '../services/dev_logger.dart';
 
 class TranslationProgress {
   final String sourcePath;
@@ -60,14 +61,24 @@ class TranslationProgress {
       final json = jsonDecode(content);
       return TranslationProgress.fromJson(json);
     } catch (e) {
-      print('Error loading progress: $e');
+      DevLogger().error('TranslationProgress', 'Error loading progress', details: e.toString());
       return null;
     }
   }
 
   Future<void> saveToFile(String filePath) async {
-    final file = File(filePath);
     lastUpdated = DateTime.now();
-    await file.writeAsString(jsonEncode(toJson()), flush: true);
+    final tempPath = '$filePath.tmp';
+    try {
+      await File(tempPath).writeAsString(jsonEncode(toJson()), flush: true);
+      await File(tempPath).rename(filePath);
+    } catch (e) {
+      try {
+        await File(tempPath).delete();
+      } catch (_) {
+        // best-effort cleanup
+      }
+      rethrow;
+    }
   }
 }

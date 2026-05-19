@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:path/path.dart' as path;
 import '../theme/app_theme.dart';
 import '../theme/config_provider.dart';
+import '../../services/dev_logger.dart';
 import '../../utils/app_strings.dart';
 
 class HistoryItem {
@@ -114,6 +115,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       }
     } catch (e) {
       debugPrint('Error loading history: $e');
+      DevLogger().warning('HistoryScreen', 'Error loading history', details: e.toString());
       setState(() {
         _history = [];
         _isLoading = false;

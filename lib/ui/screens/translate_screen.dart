@@ -11,6 +11,7 @@ import '../widgets/language_selector.dart';
 import '../widgets/file_upload_zone.dart';
 import '../../controllers/translation_controller.dart';
 import '../../services/ai_service.dart';
+import '../../services/dev_logger.dart';
 import '../theme/config_provider.dart';
 import '../../utils/app_strings.dart';
 import '../widgets/ollama_connection_dialog.dart';
@@ -1158,6 +1159,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
                               }
                             } catch (e) {
                               debugPrint("Error picking dictionary: $e");
+                              DevLogger().warning('TranslateScreen', 'Error picking dictionary', details: e.toString());
                               if (mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(

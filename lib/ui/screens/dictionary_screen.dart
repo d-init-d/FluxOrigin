@@ -8,6 +8,7 @@ import '../theme/app_theme.dart';
 import '../theme/config_provider.dart';
 import '../widgets/upload_dictionary_modal.dart';
 import '../../utils/app_strings.dart';
+import '../../services/dev_logger.dart';
 
 class DictionaryScreen extends StatefulWidget {
   final bool isDark;
@@ -66,7 +67,10 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
           try {
             final content = await file.readAsString();
             lineCount = content.split('\n').where((l) => l.trim().isNotEmpty).length;
-          } catch (_) {}
+          } catch (e) {
+            DevLogger().warning('DictionaryScreen',
+              'Failed to count lines for ${file.path}: $e');
+          }
 
           // Format file size
           final sizeBytes = stat.size;
@@ -87,6 +91,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
       }
     } catch (e) {
       debugPrint('Error loading dictionaries: $e');
+      DevLogger().warning('DictionaryScreen', 'Error loading dictionaries', details: e.toString());
     }
 
     setState(() {
