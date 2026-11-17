@@ -344,5 +344,31 @@ La bàn bằng đồng''';
       expect(extracted, contains('Second page paragraph.'));
       expect(extracted, contains('Third page paragraph.'));
     });
+
+    test('extractTextFromEpub reads EPUB cleanly without legacy epubx', () async {
+      final tmpDir = await Directory.systemTemp.createTemp('flux_epub_parse_');
+      try {
+        final epubFile = File(path.join(tmpDir.path, 'sample.epub'));
+        final bytes = EpubPipelineService.buildCleanEpubFromText(
+          title: 'Kiểm Thử EPUB',
+          content: '# Chương Một\n\nNội dung thuần Dart ổn định.',
+          targetLanguageName: 'Tiếng Việt',
+        );
+        await epubFile.writeAsBytes(bytes, flush: true);
+
+        final text = await FileParser.extractTextFromEpub(epubFile.path);
+        expect(text, contains('Chương Một'));
+        expect(text, contains('Nội dung thuần Dart ổn định.'));
+
+        await expectLater(
+          FileParser.extractTextFromEpub(path.join(tmpDir.path, 'missing.epub')),
+          throwsException,
+        );
+      } finally {
+        if (await tmpDir.exists()) {
+          await tmpDir.delete(recursive: true);
+        }
+      }
+    });
   });
 }

@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:epubx/epubx.dart';
+import 'package:archive/archive.dart';
 import 'package:html/parser.dart' as html_parser;
+import '../services/epub_pipeline_service.dart';
 
 /// Utility class for parsing desktop book & document formats (.txt, .md, .epub, .pdf).
 class FileParser {
@@ -14,7 +15,8 @@ class FileParser {
     '.pdf',
   };
 
-  /// Extracts plain text content from an EPUB file.
+  /// Extracts plain text content from an EPUB file using the pure-Dart
+  /// D-Transcreate EPUB scanner with a raw XHTML ZIP fallback for non-OPF archives.
   /// Throws Exception if file is corrupted, DRM protected, or unreadable.
   static Future<String> extractTextFromEpub(String filePath) async {
     final File file = File(filePath);
@@ -24,38 +26,36 @@ class FileParser {
     }
 
     try {
-      final bytes = await file.readAsBytes();
-      final EpubBook epubBook = await EpubReader.readBook(bytes);
-
-      final StringBuffer textContent = StringBuffer();
-
-      // Get content from chapters
-      final chapters = epubBook.Chapters;
-      if (chapters != null && chapters.isNotEmpty) {
-        for (final chapter in chapters) {
-          _extractChapterText(chapter, textContent);
+      try {
+        final scan = await EpubPipelineService().scanEpub(filePath);
+        if (scan.fullPlainText.trim().isNotEmpty) {
+          return scan.fullPlainText.trim();
         }
+      } catch (_) {
+        // Fallback below for non-standard/OPF-less EPUB archives
       }
 
-      // If no chapters found, try to extract from content files directly
-      if (textContent.isEmpty) {
-        final content = epubBook.Content;
-        if (content?.Html != null) {
-          for (final htmlFile in content!.Html!.values) {
-            final htmlContent = htmlFile.Content;
-            if (htmlContent != null) {
-              final plainText = _stripHtmlTags(htmlContent);
-              if (plainText.isNotEmpty) {
-                textContent.writeln(plainText);
-                textContent.writeln();
-              }
-            }
+      final bytes = await file.readAsBytes();
+      final archive = ZipDecoder().decodeBytes(bytes);
+      final buffer = StringBuffer();
+
+      for (final entry in archive.files) {
+        if (!entry.isFile) continue;
+        final lower = entry.name.toLowerCase();
+        if (lower.endsWith('.xhtml') ||
+            lower.endsWith('.html') ||
+            lower.endsWith('.htm')) {
+          final htmlContent =
+              utf8.decode(entry.content as List<int>, allowMalformed: true);
+          final plainText = _stripHtmlTags(htmlContent);
+          if (plainText.isNotEmpty) {
+            buffer.writeln(plainText);
+            buffer.writeln();
           }
         }
       }
 
-      final result = textContent.toString().trim();
-
+      final result = buffer.toString().trim();
       if (result.isEmpty) {
         throw Exception(
             'Không thể trích xuất nội dung từ file EPUB. File có thể bị DRM hoặc không có nội dung text.');
@@ -300,30 +300,6 @@ class FileParser {
       }
     }
     return cleaned.isNotEmpty ? cleaned : pages;
-  }
-
-  /// Recursively extracts text from a chapter and its sub-chapters.
-  static void _extractChapterText(EpubChapter chapter, StringBuffer buffer) {
-    final title = chapter.Title;
-    if (title != null && title.isNotEmpty) {
-      buffer.writeln('\n--- $title ---\n');
-    }
-
-    final htmlContent = chapter.HtmlContent;
-    if (htmlContent != null && htmlContent.isNotEmpty) {
-      final plainText = _stripHtmlTags(htmlContent);
-      if (plainText.isNotEmpty) {
-        buffer.writeln(plainText);
-        buffer.writeln();
-      }
-    }
-
-    final subChapters = chapter.SubChapters;
-    if (subChapters != null) {
-      for (final subChapter in subChapters) {
-        _extractChapterText(subChapter, buffer);
-      }
-    }
   }
 
   /// Strips HTML tags and returns plain text.

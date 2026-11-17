@@ -344,9 +344,12 @@ class DTranscreateService {
   /// if Python 3 is installed on the host. Returns converted text or null to trigger
   /// pure-Dart fallback seamlessly.
   Future<String?> tryConvertPdfViaBookOps(String pdfPath) async {
+    final exeDir = path.dirname(Platform.resolvedExecutable);
     final scriptCandidates = [
       path.join(Directory.current.path, 'tools', 'd_transcreate', 'book_ops.py'),
-      path.join(path.dirname(Platform.resolvedExecutable), '..', 'Resources', 'book_ops.py'),
+      path.join(exeDir, 'tools', 'd_transcreate', 'book_ops.py'),
+      path.join(exeDir, '..', 'Resources', 'd_transcreate', 'book_ops.py'),
+      path.join(exeDir, '..', 'Resources', 'book_ops.py'),
     ];
 
     String? scriptPath;

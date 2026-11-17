@@ -104,7 +104,7 @@ jobs:
           path: out_macos/*
 
   build-windows:
-    name: Build Windows (Setup .exe + Portable .zip)
+    name: Build Windows (Setup .exe + Store .msix + Portable .zip)
     needs: verify
     runs-on: windows-latest
     steps:
@@ -141,7 +141,26 @@ jobs:
           }
           $ver = "${env:RELEASE_TAG}".TrimStart('v')
           & $iscc "/DMyAppVersion=$ver" "/DMyOutputBaseFilename=FluxOrigin-${env:RELEASE_TAG}-windows-x64-setup" installers\Flux_Origin.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item -Path "releases\FluxOrigin-${env:RELEASE_TAG}-windows-x64-setup.exe" -Destination "out_windows\" -Force
+
+      - name: Build Microsoft Store MSIX package (.msix)
+        shell: pwsh
+        run: |
+          $rawVer = "${env:RELEASE_TAG}".TrimStart('v')
+          $parts = $rawVer.Split('.')
+          if ($parts.Count -eq 3) {
+            $msixVer = "$rawVer.0"
+          } else {
+            $msixVer = $rawVer
+          }
+          $outDirAbs = (Resolve-Path out_windows).Path
+          dart run msix:create --build-windows false --store --version $msixVer --output-path "$outDirAbs" --output-name "FluxOrigin-${env:RELEASE_TAG}-windows-x64-store"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path "out_windows\FluxOrigin-${env:RELEASE_TAG}-windows-x64-store.msix")) {
+            Write-Error "MSIX package was not generated!"
+            exit 1
+          }
           Push-Location out_windows
           Get-FileHash FluxOrigin-* -Algorithm SHA256 | ForEach-Object {
             "$($_.Hash.ToLower())  $(Split-Path -Leaf $_.Path)"

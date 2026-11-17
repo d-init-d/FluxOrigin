@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "d-init-d", "com.example" "\0"
-            VALUE "FluxOrigin - Book Translator", "flux_origin" "\0"
+            VALUE "CompanyName", "d-init-d" "\0"
+            VALUE "FileDescription", "FluxOrigin - AI Book Translation & Transcreation Studio" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "flux_origin" "\0"
-            VALUE "MinhDungNguyen", "Copyright (C) 2025 com.example. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 d-init-d. All rights reserved." "\0"
             VALUE "OriginalFilename", "flux_origin.exe" "\0"
-            VALUE "ProductName", "flux_origin" "\0"
+            VALUE "ProductName", "FluxOrigin" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

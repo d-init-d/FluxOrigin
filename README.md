@@ -44,6 +44,7 @@ Tải bản dựng mới nhất tại trang **[GitHub Releases](https://github.c
    ```
 
 ### Windows 10/11 (64-bit)
+- **Microsoft Store (`.msix`):** Gói **`FluxOrigin-v3.0.0-windows-x64-store.msix`** (`Identity: d-init-d.FluxOrigin`, `Version: 3.0.0.0`, `store: true`) sẵn sàng upload trực tiếp lên Partner Center.
 - **Bộ cài đặt (Khuyên dùng):** Tải **`FluxOrigin-v3.0.0-windows-x64-setup.exe`** và làm theo trình hướng dẫn.
 - **Bản Portable:** Tải **`FluxOrigin-v3.0.0-windows-x64-portable.zip`**, giải nén và chạy `flux_origin.exe`.
 

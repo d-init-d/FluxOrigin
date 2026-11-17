@@ -23,7 +23,10 @@ Tất cả các thay đổi quan trọng của **FluxOrigin** được ghi lại
 - **Hỗ trợ định dạng PDF & Markdown trong `FileParser`:**
   - Bổ sung bộ trích xuất text PDF thuần Dart giải nén luồng `FlateDecode`, tự động loại bỏ dòng header/footer lặp lại và nối từ bị ngắt gạch nối.
 - **CI/CD đa nền tảng (`.github/workflows/ci.yml` & `.github/workflows/release.yml`):**
-  - Tự động kiểm định `flutter analyze`, chạy full `flutter test`, build & đóng gói cho **macOS** (`.dmg` + `.zip`), **Windows** (Inno Setup `.exe` + Portable `.zip`), và **Linux** (`.tar.gz`) kèm `SHA256SUMS.txt`.
+  - Tự động kiểm định `flutter analyze`, chạy full `flutter test`, build & đóng gói cho **macOS** (`.dmg` + `.zip`), **Windows** (Microsoft Store `.msix` chuẩn `d-init-d.FluxOrigin` `3.0.0.0`, Inno Setup `.exe`, Portable `.zip`), và **Linux** (`.tar.gz`) kèm `SHA256SUMS.txt`.
+- **Nâng cấp Windows Runner & Pure-Dart `FileParser`:**
+  - Chuẩn hóa `VERSIONINFO` trong `windows/runner/Runner.rc` (`CompanyName`, `FileDescription`, `LegalCopyright`, `ProductName`) và tiêu đề cửa sổ `FluxOrigin` trong `windows/runner/main.cpp`.
+  - Thay `epubx` bằng `EpubPipelineService` + `ZipDecoder` thuần Dart trong `FileParser.extractTextFromEpub` và gỡ bỏ `dependency_overrides: image: ^3.3.0` để `msix` `3.18.0` đóng gói Store `.msix` sạch.
 
 ### Changed
 - **Tinh chỉnh UI giữ nguyên bố cục gốc (`ui_design.html`):**
