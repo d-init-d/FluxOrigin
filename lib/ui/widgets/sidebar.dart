@@ -29,37 +29,65 @@ class Sidebar extends StatelessWidget {
         color: isDark ? AppColors.darkSidebar : AppColors.lightSidebar,
         border: Border(
           right: BorderSide(
-            color: isDark ? const Color(0xFF2A2A2A) : AppColors.lightBorder,
+            color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
             width: 1,
           ),
         ),
       ),
       child: Column(
         children: [
-          // App Branding Header
+          // App Branding Header (preserved serif editorial wordmark)
           Padding(
-            // Sửa thành: chỉ padding Trên, Dưới và Trái (16px bằng với menu)
-            padding: const EdgeInsets.only(top: 24.0, bottom: 24.0, left: 16.0),
-            child: Align(
-              alignment: Alignment.centerLeft, // Bắt buộc căn trái
-              child: RichText(
-                text: TextSpan(
-                  style: GoogleFonts.merriweather(
-                    fontSize: 34,
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : const Color(0xFF000000),
-                  ),
-                  children: [
-                    const TextSpan(text: 'Flux'),
-                    TextSpan(
-                      text: 'Origin',
-                      style: TextStyle(
-                        color: isDark ? Colors.white : const Color(0xFF182b14),
+            padding: const EdgeInsets.only(top: 22.0, bottom: 20.0, left: 16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: RichText(
+                    text: TextSpan(
+                      style: GoogleFonts.merriweather(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : const Color(0xFF000000),
                       ),
+                      children: [
+                        const TextSpan(text: 'Flux'),
+                        TextSpan(
+                          text: 'Origin',
+                          style: TextStyle(
+                            color: isDark
+                                ? Colors.white
+                                : AppColors.lightAccent,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
+                const SizedBox(height: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.07)
+                        : AppColors.lightPrimary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    'v3.0 · D-Transcreate v1.1',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.4,
+                      color: isDark
+                          ? Colors.grey[400]
+                          : AppColors.lightPrimary.withValues(alpha: 0.75),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
 
@@ -108,9 +136,7 @@ class Sidebar extends StatelessWidget {
             decoration: BoxDecoration(
               border: Border(
                 top: BorderSide(
-                  color: isDark
-                      ? Colors.grey.withValues(alpha: 0.1)
-                      : Colors.grey.withValues(alpha: 0.1),
+                  color: Colors.grey.withValues(alpha: 0.12),
                   width: 1,
                 ),
               ),
@@ -125,8 +151,7 @@ class Sidebar extends StatelessWidget {
                     isActive: selectedIndex == 4,
                     onTap: () => onItemTap(4),
                     isDark: isDark,
-                    showBadge:
-                        !ollamaConnected, // Stealth Mode: Show red dot if disconnected
+                    showBadge: !ollamaConnected,
                   ),
                   SidebarItem(
                     icon: FontAwesomeIcons.bug,

@@ -1,7 +1,7 @@
 name: flux_origin
-description: A translation desktop application for Windows
+description: AI Book Translation & Transcreation Desktop App for macOS, Windows & Linux
 publish_to: 'none'
-version: 2.1.0+0
+version: 3.0.0+0
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -9,16 +9,16 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  
+
   # Window management
   window_manager: ^0.3.0
-  
+
   # UI dependencies
   google_fonts: ^6.1.0
   font_awesome_flutter: ^10.6.0
   flutter_animate: ^4.3.0
-  
-  # State management
+
+  # State management & storage
   provider: ^6.1.0
   file_picker: ^10.3.7
   shared_preferences: ^2.5.3
@@ -27,35 +27,37 @@ dependencies:
   csv: ^6.0.0
   html: ^0.15.4
   desktop_drop: ^0.4.4
-  
-  # File parsing
+
+  # File parsing, EPUB DOM & security helpers
+  archive: ^3.6.1
+  crypto: ^3.0.3
   epubx: ^4.0.0
   path: ^1.9.0
+  xml: ^6.5.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
   msix: ^3.16.0
+  yaml: ^3.1.2
 
 dependency_overrides:
   image: ^3.3.0
 
 flutter:
   uses-material-design: true
-
-# ... (giữ nguyên phần trên của file pubspec.yaml)
+  assets:
+    - assets/fluxorigin_logo.png
+    - assets/d_transcreate/glossary_vi.csv
+    - assets/d_transcreate/vi_vn_profile.md
 
 msix_config:
   display_name: FluxOrigin
   publisher_display_name: d-init-d
-  identity_name: d-init-d.FluxOrigin  # QUAN TRỌNG: Nếu đăng Store, phải lấy tên Identity từ Partner Center
-  publisher: CN=94D446F9-8A96-471F-9749-DFF18CBA6CD8     # QUAN TRỌNG: Nếu đăng Store, phải lấy chuỗi Publisher ID (ví dụ: CN=92837...) từ Partner Center
-  msix_version: 2.0.2.0
+  identity_name: d-init-d.FluxOrigin
+  publisher: CN=94D446F9-8A96-471F-9749-DFF18CBA6CD8
+  msix_version: 3.0.0.0
   logo_path: assets/fluxorigin logo.png
   store: true
   capabilities: "internetClient, internetClientServer"
-  # Các quyền truy cập file nếu app cần (vì MSIX chạy trong sandbox)
-  # un-comment nếu app cần đọc/ghi file tự do ngoài thư mục app
-  # execution_alias: fluxorigin
-

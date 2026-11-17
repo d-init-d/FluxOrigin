@@ -8,7 +8,7 @@ class SidebarItem extends StatefulWidget {
   final bool isActive;
   final VoidCallback onTap;
   final bool isDark;
-  final bool showBadge; // Stealth Mode: Show red dot for connection issues
+  final bool showBadge;
 
   const SidebarItem({
     super.key,
@@ -31,12 +31,12 @@ class _SidebarItemState extends State<SidebarItem> {
   Widget build(BuildContext context) {
     final backgroundColor = widget.isActive
         ? (widget.isDark
-            ? Colors.white.withOpacity(0.1)
-            : AppColors.lightPrimary.withOpacity(0.1))
+            ? Colors.white.withValues(alpha: 0.1)
+            : AppColors.lightPrimary.withValues(alpha: 0.1))
         : (_isHovered
             ? (widget.isDark
-                ? Colors.white.withOpacity(0.05)
-                : AppColors.lightPrimary.withOpacity(0.05))
+                ? Colors.white.withValues(alpha: 0.05)
+                : AppColors.lightPrimary.withValues(alpha: 0.05))
             : Colors.transparent);
 
     final textColor = widget.isActive
@@ -45,7 +45,7 @@ class _SidebarItemState extends State<SidebarItem> {
             ? (_isHovered ? Colors.grey[200] : Colors.grey[400])
             : (_isHovered
                 ? AppColors.lightPrimary
-                : AppColors.lightPrimary.withOpacity(0.7)));
+                : AppColors.lightPrimary.withValues(alpha: 0.7)));
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -62,7 +62,6 @@ class _SidebarItemState extends State<SidebarItem> {
           ),
           child: Row(
             children: [
-              // Stealth Mode: Wrap icon in Stack for badge overlay
               Stack(
                 clipBehavior: Clip.none,
                 children: [

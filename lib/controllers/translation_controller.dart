@@ -5,21 +5,36 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 import '../models/translation_progress.dart';
 import '../services/ai_service.dart';
+import '../services/d_transcreate_service.dart';
+import '../services/epub_pipeline_service.dart';
+import '../services/qa_verifier_service.dart';
 import '../services/web_search_service.dart';
 import '../services/dev_logger.dart';
 import '../utils/text_processor.dart';
 import '../utils/file_parser.dart';
+import '../utils/term_miner.dart';
 import '../utils/app_strings.dart';
-
-// @visibleForTesting re-exported via package:flutter/foundation.dart above
 
 class TranslationController {
   final AIService _aiService = AIService();
   final WebSearchService _webSearchService = WebSearchService();
+  final DTranscreateService _dTranscreateService = DTranscreateService();
+  final EpubPipelineService _epubPipeline = EpubPipelineService();
   final DevLogger _logger = DevLogger();
 
-  /// Throttle factor: save progress every N chunks (configurable; default 5)
+  /// Throttle factor: save progress every N chunks (default 5)
   static const int _saveEveryNChunks = 5;
+
+  int _targetChunkSize = 1200;
+  bool _deepMode = true;
+
+  QaReport? _lastQaReport;
+  List<int>? _lastTranslatedEpubBytes;
+  String? _lastWorkspacePath;
+
+  QaReport? get lastQaReport => _lastQaReport;
+  List<int>? get lastTranslatedEpubBytes => _lastTranslatedEpubBytes;
+  String? get lastWorkspacePath => _lastWorkspacePath;
 
   /// Set the base URL for AI API
   void setAIUrl(String url) {
@@ -29,6 +44,26 @@ class TranslationController {
   /// Set the AI provider type
   void setAIProviderType(AIProviderType type) {
     _aiService.setProviderType(type);
+  }
+
+  /// Set BYOK API key(s) for cloud providers (single or newline/comma separated)
+  void setAIApiKey(String rawKeys) {
+    _aiService.setApiKey(rawKeys);
+  }
+
+  /// Configure generation temperature (default 0.2)
+  void setTemperature(double temperature) {
+    _aiService.setDefaultTemperature(temperature);
+  }
+
+  /// Configure target chunk size in characters (default 1200)
+  void setChunkSize(int chunkSize) {
+    _targetChunkSize = chunkSize.clamp(500, 4000);
+  }
+
+  /// Enable or disable full D-Transcreate v1.1.0 deep mode (whole-book mining + QA + workspace)
+  void setDeepMode(bool enabled) {
+    _deepMode = enabled;
   }
 
   // Pause control
@@ -77,18 +112,7 @@ class TranslationController {
     }
   }
 
-  /// Processes the file with resume capability.
-  /// [onUpdate] callback returns status message and progress (0.0 to 1.0).
-  /// [onChunkUpdate] callback returns current chunk index, total chunks, source chunk, and translated chunk.
-  /// [allowInternet] controls whether web search (RAG) is used for glossary enrichment.
-  /// [resume] if true and progress exists, resume from saved state; if false, start fresh.
-  /// [userGlossaryPath] optional path to a user-provided CSV glossary. When provided
-  /// and the file exists, the user's entries are used as the primary glossary and
-  /// AI generation is SKIPPED (this fixes issue #6 where the system ignored the
-  /// user-uploaded CSV and always re-generated its own). When null/empty, the
-  /// legacy behavior (AI generation + smart merge with ${fileName}_glossary.csv)
-  /// is preserved for backward compatibility.
-  /// Returns the translated content as a String, or null if paused.
+  /// Processes the file with resume capability and D-Transcreate v1.1.0 pipeline.
   Future<String?> processFile({
     required String filePath,
     required String dictionaryDir,
@@ -103,9 +127,14 @@ class TranslationController {
     bool resume = false,
     String appLanguage = 'vi',
     String? userGlossaryPath,
+    String? genreOverride,
+    bool preserveEpubLayout = true,
+    int maxRetries = 2,
   }) async {
-    // Reset pause state at start
     _isPaused = false;
+    _lastQaReport = null;
+    _lastTranslatedEpubBytes = null;
+    _lastWorkspacePath = null;
 
     _logger.info('Translation', 'Starting translation process', details: '''
 File: $filePath
@@ -113,6 +142,7 @@ Model: $modelName
 Source: $sourceLanguage -> Target: $targetLanguage
 Allow Internet: $allowInternet
 Resume: $resume
+D-Transcreate Deep Mode: $_deepMode | EPUB Layout Lock: $preserveEpubLayout
 ''');
 
     final String fileName = path.basenameWithoutExtension(filePath);
@@ -121,19 +151,22 @@ Resume: $resume
     TranslationProgress? progress =
         await TranslationProgress.loadFromFile(progressPath);
 
+    EpubScanResult? epubScan;
+    List<CandidateTerm> minedTerms = const [];
+    String styleGuide = '';
+
     // --- 1. INITIALIZATION OR RESUME ---
     if (progress != null && resume) {
       _logger.info('Translation',
           'Resuming from saved progress: ${progress.currentIndex}/${progress.rawChunks.length} chunks');
       onUpdate(AppStrings.get(appLanguage, 'status_restoring_progress'),
           progress.currentIndex / progress.rawChunks.length);
-      await Future.delayed(const Duration(seconds: 1)); // UX delay
+      styleGuide = progress.styleGuide ?? '';
+      await Future.delayed(const Duration(milliseconds: 600));
     } else {
-      // If not resuming or no progress, delete old progress and start fresh
       if (progress != null && !resume) {
         final File progressFile = File(progressPath);
         if (await progressFile.exists()) {
-          // Retry loop to handle Windows file lock (OS Error 32)
           bool deleted = false;
           for (int attempt = 1; attempt <= 3; attempt++) {
             try {
@@ -156,85 +189,141 @@ Resume: $resume
         progress = null;
       }
 
-      // INITIALIZATION SECTION - Wrapped in try-catch to handle AI service failures
       try {
         onUpdate(AppStrings.get(appLanguage, 'status_reading_file'), 0.0);
         _logger.debug('Translation', 'Reading source file...');
 
-        // Extract text content based on file type (TXT or EPUB)
-        // Use compute() for heavy EPUB parsing to avoid blocking UI
-        final String content = await compute(_extractTextInIsolate, filePath);
-        final String fileName = path.basenameWithoutExtension(filePath);
-        _logger.info('Translation', 'File loaded: ${content.length} characters');
+        final isEpub = filePath.toLowerCase().endsWith('.epub');
+        final isPdf = filePath.toLowerCase().endsWith('.pdf');
+        String content = '';
+        List<String> chunks = [];
+
+        if (isEpub && preserveEpubLayout) {
+          try {
+            epubScan = await _epubPipeline.scanEpub(
+              filePath,
+              targetChunkChars: _targetChunkSize,
+            );
+            chunks = epubScan.anchoredChunks;
+            content = epubScan.fullPlainText;
+            _logger.info('Translation', 'File loaded: ${content.length} characters');
+          } catch (e) {
+            _logger.warning('Translation',
+                'Anchor-Locked EPUB scan failed, falling back to plain EPUB extraction: $e');
+            content = await compute(_extractTextInIsolate, filePath);
+            _logger.info('Translation', 'File loaded: ${content.length} characters');
+          }
+        } else if (isPdf) {
+          final bridged =
+              await _dTranscreateService.tryConvertPdfViaBookOps(filePath);
+          content = (bridged != null && bridged.trim().isNotEmpty)
+              ? bridged
+              : await compute(_extractTextInIsolate, filePath);
+          _logger.info('Translation', 'File loaded: ${content.length} characters');
+        } else {
+          content = await compute(_extractTextInIsolate, filePath);
+          _logger.info('Translation', 'File loaded: ${content.length} characters');
+        }
 
         onUpdate(AppStrings.get(appLanguage, 'status_analyzing'), 0.1);
-        // Use compute() for heavy text splitting to avoid blocking UI
-        final List<String> chunks = await compute(_smartSplitInIsolate, content);
+        if (chunks.isEmpty) {
+          chunks = await compute(
+            _smartSplitInIsolate,
+            {'content': content, 'targetSize': _targetChunkSize},
+          );
+        }
         final String sample = TextProcessor.createSample(content);
         _logger.info('Translation', 'Text split into ${chunks.length} chunks');
 
+        // D-Transcreate Whole-Book Term Mining
+        if (_deepMode && chunks.isNotEmpty) {
+          minedTerms = WholeBookTermMiner.mineTerms(chunks);
+        }
+        final candidateTermsBlock = _deepMode
+            ? WholeBookTermMiner.formatForGlossaryPrompt(minedTerms)
+            : null;
+
         onUpdate(AppStrings.get(appLanguage, 'status_detecting_genre'), 0.2);
-        // Chỉ detect genre nếu nguồn là Tiếng Trung, các trường hợp khác dùng "KHAC"
-        final String genreKey = sourceLanguage == 'Tiếng Trung'
-            ? await _aiService.detectGenre(sample, modelName)
-            : "KHAC";
+        String genreKey;
+        if (genreOverride != null &&
+            genreOverride.isNotEmpty &&
+            genreOverride != 'AUTO') {
+          genreKey = genreOverride;
+        } else {
+          genreKey = (sourceLanguage == 'Tiếng Trung' || _deepMode)
+              ? await _aiService.detectGenre(sample, modelName)
+              : 'KHAC';
+        }
         _logger.info('Translation', 'Detected genre: $genreKey');
 
         final String systemPrompt =
             _aiService.getSystemPrompt(genreKey, sourceLanguage, targetLanguage);
         _logger.debug('Translation', 'System prompt set', details: systemPrompt);
 
-        // Smart Merge: Merge AI glossary with existing user CSV
+        if (_deepMode) {
+          styleGuide = DTranscreateService.buildStyleAndDossierGuide(
+            sourceLanguage: sourceLanguage,
+            targetLanguage: targetLanguage,
+            genre: genreKey,
+            candidateTerms: minedTerms,
+          );
+        }
+
         final glossaryFile =
             File(path.join(dictionaryDir, "${fileName}_glossary.csv"));
 
         // === FIX ISSUE #6 ===
-        // If the user supplied an explicit glossary file, use it AS-IS and
-        // SKIP AI generation entirely. This both fixes the bug and saves an
-        // expensive API call. Fall back to AI generation only if the user
-        // did not provide a path (or the file is missing/empty).
+        // Honor user-uploaded CSV verbatim when present
         final bool hasUserGlossary = await applyUserGlossary(
           userGlossaryPath: userGlossaryPath,
           glossaryFile: glossaryFile,
         );
 
         if (!hasUserGlossary) {
-          // No user glossary → use the legacy AI-generation + smart-merge
-          // flow. This is the original (preserved) behavior for backward
-          // compatibility with callers that don't pass `userGlossaryPath`.
           onUpdate(
               AppStrings.get(appLanguage, 'status_creating_glossary'), 0.3);
           final String glossaryCsv = await _aiService.generateGlossary(
-              sample, modelName, sourceLanguage, genreKey);
+            sample,
+            modelName,
+            sourceLanguage,
+            genreKey,
+            candidateTermsBlock: candidateTermsBlock,
+            targetLanguage: targetLanguage,
+          );
           _logger.info('Translation',
               'Glossary generated: ${glossaryCsv.split('\n').length} terms');
 
+          // Merge D-Transcreate Tier-1 domain-filtered terms with AI glossary & existing user edits
+          String tier1Seed = '';
+          if (_deepMode && targetLanguage == 'Tiếng Việt') {
+            tier1Seed = await _dTranscreateService.buildDomainSeededCsv(
+              sourceText: content,
+              domain: DTranscreateService.domainForGenre(genreKey),
+              targetLanguage: targetLanguage,
+            );
+          }
+
           try {
+            final combinedAiAndSeed =
+                tier1Seed.isNotEmpty ? '$tier1Seed\n$glossaryCsv' : glossaryCsv;
             final String mergedCsv = await _smartMergeGlossary(
-              aiGeneratedCsv: glossaryCsv,
+              aiGeneratedCsv: combinedAiAndSeed,
               existingFile: glossaryFile,
             );
 
-            // Save merged glossary as CSV
             await glossaryFile.writeAsString(mergedCsv);
-            _logger.debug('Translation',
-                'Glossary saved to: ${glossaryFile.path}');
+            _logger.debug(
+                'Translation', 'Glossary saved to: ${glossaryFile.path}');
           } catch (e) {
             _logger.warning('Translation', 'Error saving glossary: $e');
-            // Non-critical error, continue
           }
         } else {
-          // User glossary is in place — surface a clear status so the user
-          // can see that their file is being used (instead of feeling that
-          // the system silently overrode it like before the fix).
-          onUpdate(AppStrings.get(
-              appLanguage, 'status_using_user_glossary'),
+          onUpdate(AppStrings.get(appLanguage, 'status_using_user_glossary'),
               0.32);
         }
 
-        // Enrich Glossary: Lookup definitions (only if Internet is allowed)
-        String glossary;
-        if (allowInternet) {
+        String glossary = '';
+        if (allowInternet && await glossaryFile.exists()) {
           onUpdate("Đang tra cứu thuật ngữ (RAG)...", 0.35);
           glossary = await _enrichGlossary(
             glossaryFile: glossaryFile,
@@ -243,12 +332,11 @@ Resume: $resume
           );
         } else {
           onUpdate("Chế độ cục bộ - bỏ qua tra cứu Internet...", 0.35);
-          glossary = await glossaryFile.readAsString();
+          if (await glossaryFile.exists()) {
+            glossary = await glossaryFile.readAsString();
+          }
         }
 
-        // Create output path in outputDir
-        // Note: In new flow, we don't save automatically, but we keep this field
-        // in TranslationProgress for compatibility or future use.
         const String outputPath = "";
 
         progress = TranslationProgress(
@@ -261,32 +349,32 @@ Resume: $resume
           translatedChunks: List<String?>.filled(chunks.length, null),
           currentIndex: 0,
           lastUpdated: DateTime.now(),
+          styleGuide: styleGuide.isNotEmpty ? styleGuide : null,
+          epubMetadata: epubScan?.toMetadataJson(),
         );
 
         await progress.saveToFile(progressPath);
       } catch (e) {
-        // Log the initialization error
-        _logger.error('Translation', 'Initialization failed during glossary generation', details: e.toString());
-        
-        // CRITICAL: Update UI with error status so it doesn't stay stuck at "Creating glossary"
+        _logger.error(
+            'Translation', 'Initialization failed during glossary generation',
+            details: e.toString());
         onUpdate('${AppStrings.get(appLanguage, 'status_error')}: $e', 0.3);
-        
-        // Rethrow to stop execution and let caller handle the error
         rethrow;
       }
     }
 
-    // --- 2. TRANSLATION LOOP WITH CONTEXT AWARENESS ---
+    // --- 2. TRANSLATION LOOP WITH CONTEXT AWARENESS & AUTO-RETRY ---
     final int total = progress.rawChunks.length;
     String? previousContext;
 
-    // If resuming, extract context from the last translated chunk
     if (progress.currentIndex > 0) {
       final lastTranslated =
           progress.translatedChunks[progress.currentIndex - 1];
       if (lastTranslated != null && lastTranslated.isNotEmpty) {
-        previousContext =
-            TextProcessor.extractLastSentences(lastTranslated, maxLength: 200);
+        previousContext = TextProcessor.extractLastSentences(
+          EpubPipelineService.stripBlockAnchors(lastTranslated),
+          maxLength: 200,
+        );
       }
     }
 
@@ -294,36 +382,85 @@ Resume: $resume
         'Starting translation loop: ${progress.currentIndex}/$total chunks');
 
     for (int i = progress.currentIndex; i < total; i++) {
-      // Check for pause request BEFORE processing next chunk
       if (_isPaused) {
         _logger.info(
             'Translation', 'Translation paused at chunk ${i + 1}/$total');
         onUpdate(AppStrings.get(appLanguage, 'status_paused'), i / total);
         await progress.saveToFile(progressPath);
-        return null; // Return null to indicate paused state
+        return null;
       }
 
       final double percent = (i / total);
-      onUpdate("${AppStrings.get(appLanguage, 'status_translating')} ${i + 1}/$total...", percent);
+      onUpdate(
+          "${AppStrings.get(appLanguage, 'status_translating')} ${i + 1}/$total...",
+          percent);
 
       try {
         final String chunk = progress.rawChunks[i];
+        final String cleanPreviewSrc =
+            EpubPipelineService.stripBlockAnchors(chunk);
         _logger.debug('Translation',
             'Translating chunk ${i + 1}/$total (${chunk.length} chars)');
 
-        // Notify UI about current chunk being processed
-        onChunkUpdate?.call(i + 1, total, chunk, AppStrings.get(appLanguage, 'processing'));
-
-        final String translated = await _aiService.translateChunk(
-          chunk,
-          progress.systemPrompt,
-          progress.glossary,
-          modelName,
-          sourceLanguage,
-          targetLanguage,
-          previousContext: previousContext,
-          genre: progress.genre,
+        onChunkUpdate?.call(
+          i + 1,
+          total,
+          cleanPreviewSrc,
+          AppStrings.get(appLanguage, 'processing'),
         );
+
+        String translated = '';
+        Object? lastError;
+
+        for (int attempt = 0; attempt <= maxRetries; attempt++) {
+          if (_isPaused) break;
+          try {
+            translated = await _aiService.translateChunk(
+              chunk,
+              progress.systemPrompt,
+              progress.glossary,
+              modelName,
+              sourceLanguage,
+              targetLanguage,
+              previousContext: previousContext,
+              genre: progress.genre,
+              styleGuide: styleGuide,
+              sliceGlossary: _deepMode,
+            );
+
+            // Check critical chunk quality (empty / heavy CJK leakage)
+            if (translated.trim().isNotEmpty) {
+              final chunkIssues = QaVerifierService.checkChunk(
+                chunkIndex: i,
+                sourceChunk: chunk,
+                translatedChunk: translated,
+                sourceLanguage: sourceLanguage,
+                targetLanguage: targetLanguage,
+              );
+              final hasCriticalDefect =
+                  chunkIssues.any((iss) => iss.severity == QaSeverity.error);
+              if (!hasCriticalDefect || attempt == maxRetries) {
+                break;
+              }
+              _logger.warning('Translation',
+                  'Chunk ${i + 1} failed inline QA (${chunkIssues.first.gate}), retrying (${attempt + 1}/$maxRetries)');
+            }
+          } catch (e) {
+            lastError = e;
+            if (attempt == maxRetries) rethrow;
+            _logger.warning('Translation',
+                'Chunk ${i + 1} transient error, backing off before retry ${attempt + 1}/$maxRetries: $e');
+            await Future.delayed(Duration(milliseconds: 800 * (attempt + 1)));
+          }
+        }
+
+        if (_isPaused && translated.isEmpty) {
+          await progress.saveToFile(progressPath);
+          return null;
+        }
+        if (translated.isEmpty && lastError != null) {
+          throw lastError;
+        }
 
         progress.translatedChunks[i] = translated;
         progress.currentIndex = i + 1;
@@ -331,16 +468,16 @@ Resume: $resume
         _logger.debug('Translation',
             'Chunk ${i + 1} translated (${translated.length} chars)');
 
-        // Notify UI about translated result
-        onChunkUpdate?.call(i + 1, total, chunk, translated);
+        final cleanPreviewTgt =
+            EpubPipelineService.stripBlockAnchors(translated);
+        onChunkUpdate?.call(i + 1, total, cleanPreviewSrc, cleanPreviewTgt);
 
-        // Update context for next iteration
-        if (translated.isNotEmpty) {
-          previousContext =
-              TextProcessor.extractLastSentences(translated, maxLength: 200);
+        if (cleanPreviewTgt.isNotEmpty) {
+          previousContext = TextProcessor.extractLastSentences(
+              cleanPreviewTgt,
+              maxLength: 200);
         }
 
-        // Throttled save: only persist every N chunks or on the final chunk
         final bool isFinalChunk = (i + 1) == total;
         final bool isThrottleBoundary = ((i + 1) % _saveEveryNChunks) == 0;
         if (isFinalChunk || isThrottleBoundary) {
@@ -348,24 +485,88 @@ Resume: $resume
         }
       } catch (e) {
         _logger.error('Translation', 'Error translating chunk ${i + 1}: $e');
-        onUpdate("${AppStrings.get(appLanguage, 'status_error')} ${i + 1}: $e", percent);
-        // Save progress before rethrowing so in-progress chunks since last throttle boundary are not lost
+        onUpdate("${AppStrings.get(appLanguage, 'status_error')} ${i + 1}: $e",
+            percent);
         await progress.saveToFile(progressPath);
-        // Simple retry logic: decrement i to retry this chunk next loop
-        // Or just throw to stop and let user resume later.
-        // For now, let's throw so the loop stops and user can resume.
-        throw Exception("${AppStrings.get(appLanguage, 'status_error')} ${i + 1}: $e");
+        throw Exception(
+            "${AppStrings.get(appLanguage, 'status_error')} ${i + 1}: $e");
       }
     }
 
-    // --- 3. FINALIZE ---
+    // --- 3. FINALIZE: QA AUDIT, EPUB REBUILD & D-TRANSCREATE WORKSPACE EXPORT ---
     _logger.info('Translation', 'Translation complete! Finalizing...');
-    onUpdate(AppStrings.get(appLanguage, 'status_merging'), 1.0);
+    onUpdate(AppStrings.get(appLanguage, 'status_merging'), 0.96);
+
+    if (_deepMode) {
+      _lastQaReport = QaVerifierService.verifyBook(
+        rawChunks: progress.rawChunks,
+        translatedChunks: progress.translatedChunks,
+        sourceLanguage: sourceLanguage,
+        targetLanguage: targetLanguage,
+        glossaryCsv: progress.glossary,
+      );
+      _logger.info('Translation',
+          'D-Transcreate QA score: ${_lastQaReport!.score}/100 (errors=${_lastQaReport!.errorCount}, warnings=${_lastQaReport!.warningCount})');
+    }
+
+    // Rebuild Anchor-Locked EPUB if source was EPUB with metadata
+    final meta = progress.epubMetadata;
+    if (filePath.toLowerCase().endsWith('.epub') && meta != null) {
+      try {
+        final blockRefs = (meta['blockRefs'] as List? ?? const [])
+            .map((e) => EpubBlockRef.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList();
+        final chunkIds = (meta['chunkBlockIds'] as List? ?? const [])
+            .map((e) => List<int>.from(e as List))
+            .toList();
+        if (blockRefs.isNotEmpty && chunkIds.isNotEmpty) {
+          _lastTranslatedEpubBytes = await _epubPipeline.rebuildTranslatedEpub(
+            sourceEpubPath: filePath,
+            blockRefs: blockRefs,
+            chunkBlockIds: chunkIds,
+            translatedChunks: progress.translatedChunks,
+            targetLanguageName: targetLanguage,
+          );
+          _logger.info('Translation',
+              'Rebuilt Anchor-Locked EPUB (${_lastTranslatedEpubBytes!.length} bytes)');
+        }
+      } catch (e) {
+        _logger.warning(
+            'Translation', 'Could not rebuild layout-locked EPUB: $e');
+      }
+    }
+
     final StringBuffer finalContent = StringBuffer();
     for (final chunk in progress.translatedChunks) {
       if (chunk != null) {
-        finalContent.write(chunk);
-        finalContent.write("\n\n");
+        final cleanedChunk = EpubPipelineService.stripBlockAnchors(chunk);
+        if (cleanedChunk.isNotEmpty) {
+          finalContent.write(cleanedChunk);
+          finalContent.write("\n\n");
+        }
+      }
+    }
+
+    // Export workspace under <projectPath>/workspaces/<bookSlug>
+    if (_deepMode && dictionaryDir.isNotEmpty) {
+      try {
+        final projectDir = path.dirname(dictionaryDir);
+        _lastWorkspacePath = await _dTranscreateService.exportWorkspaceArtifacts(
+          projectPath: projectDir,
+          sourcePath: filePath,
+          targetLanguage: targetLanguage,
+          sourceLanguage: sourceLanguage,
+          genre: progress.genre,
+          styleGuide: styleGuide,
+          glossaryCsv: progress.glossary,
+          rawChunks: progress.rawChunks,
+          translatedChunks: progress.translatedChunks,
+          minedTerms: minedTerms,
+          qaReport: _lastQaReport,
+        );
+      } catch (e) {
+        _logger.warning(
+            'Translation', 'Workspace export skipped due to error: $e');
       }
     }
 
@@ -375,71 +576,79 @@ Resume: $resume
       await progressFile.delete();
     }
 
-    // Add to history log
     await _addToHistory(
       dictionaryDir: dictionaryDir,
       fileName: fileName,
       status: 'completed',
+      sourceLanguage: sourceLanguage,
+      targetLanguage: targetLanguage,
+      genre: progress.genre,
+      qaScore: _lastQaReport?.score,
+      workspacePath: _lastWorkspacePath,
     );
 
     _logger.info('Translation',
         'Translation saved! Final length: ${finalContent.length} chars');
     onUpdate(AppStrings.get(appLanguage, 'status_completed'), 1.0);
-    return finalContent.toString();
+    return finalContent.toString().trim();
   }
 
-  /// Adds a translation entry to the history log
   Future<void> _addToHistory({
     required String dictionaryDir,
     required String fileName,
     required String status,
+    String? sourceLanguage,
+    String? targetLanguage,
+    String? genre,
+    int? qaScore,
+    String? workspacePath,
   }) async {
     final historyPath = path.join(dictionaryDir, 'history_log.json');
     final historyFile = File(historyPath);
 
     List<Map<String, dynamic>> history = [];
 
-    // Load existing history
     if (await historyFile.exists()) {
       try {
         final content = await historyFile.readAsString();
         final decoded = jsonDecode(content);
         if (decoded is List) {
-          history = decoded.cast<Map<String, dynamic>>();
+          history = decoded
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
         }
       } catch (e) {
-        // If file is corrupted, start fresh
         debugPrint('Error reading history: $e');
-        _logger.warning('TranslationController', 'Error reading history', details: e.toString());
+        _logger.warning('TranslationController', 'Error reading history',
+            details: e.toString());
       }
     }
 
-    // Add new entry
     history.add({
       'fileName': fileName,
       'date': DateTime.now().toIso8601String(),
       'status': status,
+      if (sourceLanguage != null) 'sourceLanguage': sourceLanguage,
+      if (targetLanguage != null) 'targetLanguage': targetLanguage,
+      if (genre != null) 'genre': genre,
+      if (qaScore != null) 'qaScore': qaScore,
+      if (workspacePath != null) 'workspacePath': workspacePath,
     });
 
-    // Save history
     try {
       await historyFile.writeAsString(jsonEncode(history));
     } catch (e) {
       debugPrint('Error saving history: $e');
-      _logger.error('TranslationController', 'Error saving history', details: e.toString());
+      _logger.error('TranslationController', 'Error saving history',
+          details: e.toString());
     }
   }
 
-  /// Smart Merge: Merges AI-generated CSV with existing user CSV
-  /// Keeps user edits, adds new AI entries
-  /// Smart Merge: Merges AI-generated CSV with existing user CSV
-  /// Keeps user edits, adds new AI entries
-  /// Preserves 3 columns: Original, Vietnamese, Definition
   Future<String> _smartMergeGlossary({
     required String aiGeneratedCsv,
     required File existingFile,
   }) async {
-    // Parse AI-generated CSV
     List<List<dynamic>> aiRows = [];
     try {
       aiRows = const CsvToListConverter().convert(
@@ -448,23 +657,23 @@ Resume: $resume
         shouldParseNumbers: false,
       );
     } catch (e) {
-      _logger.warning('TranslationController', 'Error parsing AI glossary CSV', details: e.toString());
+      _logger.warning(
+          'TranslationController', 'Error parsing AI glossary CSV',
+          details: e.toString());
     }
 
-    // Create a map from AI data: Original Name -> [Vietnamese Name, Definition]
     final Map<String, List<String>> aiMap = {};
     for (final row in aiRows) {
       if (row.length >= 2) {
         final original = row[0].toString().trim();
-        final vietnamese = row[1].toString().trim();
+        final translated = row[1].toString().trim();
         final definition = row.length > 2 ? row[2].toString().trim() : "";
         if (original.isNotEmpty) {
-          aiMap[original] = [vietnamese, definition];
+          aiMap[original] = [translated, definition];
         }
       }
     }
 
-    // If existing file exists, load and preserve user edits
     if (await existingFile.exists()) {
       List<List<dynamic>> existingRows = [];
       try {
@@ -475,35 +684,32 @@ Resume: $resume
           shouldParseNumbers: false,
         );
       } catch (e) {
-        _logger.warning('TranslationController', 'Error parsing existing glossary CSV', details: e.toString());
+        _logger.warning(
+            'TranslationController', 'Error parsing existing glossary CSV',
+            details: e.toString());
       }
 
-      // User edits take priority
       final Map<String, List<String>> userMap = {};
       for (final row in existingRows) {
         if (row.length >= 2) {
           final original = row[0].toString().trim();
-          final vietnamese = row[1].toString().trim();
+          final translated = row[1].toString().trim();
           final definition = row.length > 2 ? row[2].toString().trim() : "";
           if (original.isNotEmpty) {
-            userMap[original] = [vietnamese, definition];
+            userMap[original] = [translated, definition];
           }
         }
       }
 
-      // Merge: User edits + New AI entries
-      // Start with AI map, then overwrite with User map
       final Map<String, List<String>> mergedMap = {...aiMap};
       mergedMap.addAll(userMap);
 
-      // Convert back to CSV
       final List<List<String>> csvData = mergedMap.entries.map((e) {
         return [e.key, e.value[0], e.value[1]];
       }).toList();
 
       return const ListToCsvConverter().convert(csvData, eol: '\n');
     } else {
-      // No existing file, use AI-generated CSV but ensure 3 columns structure
       final List<List<String>> csvData = aiMap.entries.map((e) {
         return [e.key, e.value[0], e.value[1]];
       }).toList();
@@ -512,17 +718,7 @@ Resume: $resume
     }
   }
 
-  /// Applies a user-provided glossary file to the active glossary slot.
-  ///
-  /// If [userGlossaryPath] is non-empty, the file at that path is read,
-  /// validated (non-empty, has at least one valid line), and written to
-  /// [glossaryFile] (the standard ${fileName}_glossary.csv location). This
-  /// causes the user's CSV to win over any AI-generated content, fixing
-  /// issue #6 ("Lỗi từ điển").
-  ///
-  /// Returns true if a user glossary was successfully applied; false if no
-  /// path was provided, the file is missing, or the file is empty/invalid
-  /// (in which case the caller should fall back to the AI generation flow).
+  /// Applies a user-provided glossary file verbatim into [glossaryFile] (Issue #6).
   @visibleForTesting
   Future<bool> applyUserGlossary({
     required String? userGlossaryPath,
@@ -547,28 +743,21 @@ Resume: $resume
         return false;
       }
 
-      // Count meaningful non-empty lines for logging
-      final lineCount = userContent
-          .split('\n')
-          .where((l) => l.trim().isNotEmpty)
-          .length;
+      final lineCount =
+          userContent.split('\n').where((l) => l.trim().isNotEmpty).length;
 
-      // Copy the user's file to the standard glossary slot. The file is
-      // copied verbatim (no AI merge) so user entries are 100% preserved —
-      // this is the core fix for issue #6.
       await glossaryFile.writeAsString(userContent, flush: true);
       _logger.info('Translation',
           'Applied user glossary ($lineCount lines) from: $userGlossaryPath → ${glossaryFile.path}');
       return true;
     } catch (e) {
-      _logger.error('Translation',
-          'Failed to read user glossary: $userGlossaryPath',
+      _logger.error(
+          'Translation', 'Failed to read user glossary: $userGlossaryPath',
           details: e.toString());
       return false;
     }
   }
 
-  /// Enriches the glossary by looking up definitions for terms
   Future<String> _enrichGlossary({
     required File glossaryFile,
     required String targetLanguage,
@@ -591,17 +780,14 @@ Resume: $resume
         final row = rows[i];
         if (row.isEmpty) continue;
 
-        // Ensure row has at least 3 columns
         while (row.length < 3) {
-          row.add(""); // Add empty definition
+          row.add("");
           isModified = true;
         }
 
         final String original = row[0].toString().trim();
-        // final String vietnamese = row[1].toString().trim();
-        String definition = row[2].toString().trim();
+        final String definition = row[2].toString().trim();
 
-        // If definition is empty, lookup
         if (definition.isEmpty && original.isNotEmpty) {
           onUpdate(
               "Đang tra cứu: $original...", 0.35 + (0.05 * (i / totalRows)));
@@ -610,17 +796,14 @@ Resume: $resume
           final String? result =
               await _webSearchService.lookupTerm(original, langCode);
           if (result != null) {
-            row[2] =
-                result; // ListToCsvConverter will handle escaping quotes/commas
+            row[2] = result;
             isModified = true;
           }
 
-          // Delay to avoid rate limiting
           await Future.delayed(const Duration(milliseconds: 500));
         }
       }
 
-      // Always convert back to ensure consistent 3-column format and proper escaping
       final String newCsv = const ListToCsvConverter().convert(rows, eol: '\n');
 
       if (isModified) {
@@ -629,8 +812,8 @@ Resume: $resume
 
       return newCsv;
     } catch (e) {
-      _logger.warning('TranslationController', 'Error enriching glossary', details: e.toString());
-      // Return original content if enrichment fails to avoid data loss
+      _logger.warning('TranslationController', 'Error enriching glossary',
+          details: e.toString());
       return await glossaryFile.readAsString();
     }
   }
@@ -643,21 +826,30 @@ Resume: $resume
         return 'en';
       case 'Tiếng Trung':
         return 'zh';
+      case 'Tiếng Nhật':
+        return 'ja';
+      case 'Tiếng Hàn':
+        return 'ko';
+      case 'Tiếng Pháp':
+        return 'fr';
+      case 'Tiếng Đức':
+        return 'de';
+      case 'Tiếng Tây Ban Nha':
+        return 'es';
       default:
-        return 'en'; // Mặc định là Anh
+        return 'en';
     }
   }
 }
 
-// Top-level functions for compute() isolate execution
-// These must be top-level or static to work with compute()
-
-/// Extracts text from file in isolate (supports TXT and EPUB)
+/// Extracts text from file in isolate (supports TXT, MD, EPUB, and PDF).
 Future<String> _extractTextInIsolate(String filePath) async {
   return FileParser.extractText(filePath);
 }
 
-/// Splits text into chunks in isolate
-List<String> _smartSplitInIsolate(String content) {
-  return TextProcessor.smartSplit(content);
+/// Splits text into chunks in isolate.
+List<String> _smartSplitInIsolate(Map<String, dynamic> args) {
+  final content = args['content'] as String;
+  final targetSize = args['targetSize'] as int? ?? 1000;
+  return TextProcessor.smartSplit(content, targetSize: targetSize);
 }

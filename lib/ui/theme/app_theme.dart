@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-/// Light theme colors extracted from HTML prototype
+/// Light & Dark monochrome theme colors faithful to FluxOrigin's literary paper aesthetic.
 class AppColors {
-  // Light Mode
+  // Light Mode (Literary Paper & Forest Ink)
   static const Color lightPrimary = Color(0xFF043222);
   static const Color lightAccent = Color(0xFF13503D);
   static const Color lightPaper = Color(0xFFFDFCF8);
@@ -11,22 +12,42 @@ class AppColors {
   static const Color lightSurface = Color(0xFFFFFFFF);
   static const Color lightBorder = Color(0xFFE6E4DC);
 
-  // Dark Mode
+  // Dark Mode (High-Contrast Ink Obsidian)
   static const Color darkPaper = Color(0xFF111111);
   static const Color darkSidebar = Color(0xFF000000);
   static const Color darkSurface = Color(0xFF1A1A1A);
   static const Color darkBorder = Color(0xFF2A2A2A);
 }
 
-/// Theme notifier to manage dark/light mode toggle
+/// Theme notifier to persist and toggle Dark / Light mode.
 class ThemeNotifier extends ChangeNotifier {
+  static const String _darkModeKey = 'is_dark_mode';
   bool _isDark = false;
+
+  ThemeNotifier() {
+    _loadTheme();
+  }
 
   bool get isDark => _isDark;
 
-  void toggleTheme() {
+  Future<void> _loadTheme() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getBool(_darkModeKey);
+      if (saved != null && saved != _isDark) {
+        _isDark = saved;
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> toggleTheme() async {
     _isDark = !_isDark;
     notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_darkModeKey, _isDark);
+    } catch (_) {}
   }
 
   ThemeData get currentTheme => _isDark ? darkTheme : lightTheme;
@@ -68,4 +89,3 @@ class ThemeNotifier extends ChangeNotifier {
     );
   }
 }
-

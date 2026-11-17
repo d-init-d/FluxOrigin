@@ -53,12 +53,16 @@ class _LanguageSelectorState extends State<LanguageSelector> {
   void _removeOverlay() {
     _overlayEntry?.remove();
     _overlayEntry = null;
-    setState(() => _isOpen = false);
+    if (mounted) {
+      setState(() => _isOpen = false);
+    } else {
+      _isOpen = false;
+    }
   }
 
   OverlayEntry _createOverlayEntry() {
-    RenderBox renderBox = context.findRenderObject() as RenderBox;
-    var size = renderBox.size;
+    final RenderBox renderBox = context.findRenderObject() as RenderBox;
+    final size = renderBox.size;
 
     return OverlayEntry(
       builder: (context) => GestureDetector(
@@ -76,6 +80,7 @@ class _LanguageSelectorState extends State<LanguageSelector> {
                   elevation: 8,
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
+                    constraints: const BoxConstraints(maxHeight: 280),
                     decoration: BoxDecoration(
                       color:
                           widget.isDark ? AppColors.darkSurface : Colors.white,
@@ -86,32 +91,35 @@ class _LanguageSelectorState extends State<LanguageSelector> {
                             : Colors.grey[200]!,
                       ),
                     ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: widget.availableLanguages.map((lang) {
-                        final isSelected = lang == widget.value;
-                        final isDisabled = lang == widget.disabledLanguage;
-                        return InkWell(
-                          onTap: isDisabled
-                              ? null
-                              : () {
-                                  widget.onChange(lang);
-                                  _removeOverlay();
-                                },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 12),
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? (widget.isDark
-                                      ? Colors.white.withValues(alpha: 0.1)
-                                      : AppColors.lightPrimary.withValues(alpha: 0.1))
-                                  : Colors.transparent,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: widget.availableLanguages.map((lang) {
+                          final isSelected = lang == widget.value;
+                          final isDisabled = lang == widget.disabledLanguage;
+                          return InkWell(
+                            onTap: isDisabled
+                                ? null
+                                : () {
+                                    widget.onChange(lang);
+                                    _removeOverlay();
+                                  },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? (widget.isDark
+                                        ? Colors.white.withValues(alpha: 0.1)
+                                        : AppColors.lightPrimary
+                                            .withValues(alpha: 0.1))
+                                    : Colors.transparent,
+                              ),
+                              child: _buildLanguageItem(lang, isSelected),
                             ),
-                            child: _buildLanguageItem(lang, isSelected),
-                          ),
-                        );
-                      }).toList(),
+                          );
+                        }).toList(),
+                      ),
                     ),
                   ),
                 ),
@@ -128,7 +136,7 @@ class _LanguageSelectorState extends State<LanguageSelector> {
     final isDisabled = lang == widget.disabledLanguage;
 
     return Opacity(
-      opacity: isDisabled ? 0.5 : 1.0,
+      opacity: isDisabled ? 0.45 : 1.0,
       child: Row(
         children: [
           Container(
@@ -146,7 +154,7 @@ class _LanguageSelectorState extends State<LanguageSelector> {
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
-                  color: widget.isDark ? Colors.white : Colors.grey[500],
+                  color: widget.isDark ? Colors.white : Colors.grey[600],
                 ),
               ),
             ),
@@ -155,8 +163,9 @@ class _LanguageSelectorState extends State<LanguageSelector> {
           Expanded(
             child: Text(
               _getLocalizedLanguageName(lang, appLang),
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 14,
+                fontSize: 13,
                 color: isDisabled
                     ? Colors.grey
                     : (isSelected
@@ -165,7 +174,6 @@ class _LanguageSelectorState extends State<LanguageSelector> {
                             : AppColors.lightPrimary)
                         : (widget.isDark ? Colors.white : Colors.grey[800])),
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                decoration: null,
               ),
             ),
           ),
@@ -190,7 +198,7 @@ class _LanguageSelectorState extends State<LanguageSelector> {
         child: GestureDetector(
           onTap: _toggleDropdown,
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               color: widget.isDark ? AppColors.darkSurface : Colors.white,
               borderRadius: BorderRadius.circular(8),
@@ -224,12 +232,13 @@ class _LanguageSelectorState extends State<LanguageSelector> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     _getLocalizedLanguageName(widget.value, appLang),
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: 14,
+                      fontSize: 13,
                       fontWeight: FontWeight.w500,
                       color: widget.isDark
                           ? Colors.grey[200]
@@ -241,7 +250,7 @@ class _LanguageSelectorState extends State<LanguageSelector> {
                   _isOpen
                       ? FontAwesomeIcons.chevronUp
                       : FontAwesomeIcons.chevronDown,
-                  size: 12,
+                  size: 11,
                   color: widget.isDark ? Colors.grey : Colors.grey[600],
                 ),
               ],
@@ -260,6 +269,16 @@ class _LanguageSelectorState extends State<LanguageSelector> {
         return 'CN';
       case 'Tiếng Việt':
         return 'VI';
+      case 'Tiếng Nhật':
+        return 'JA';
+      case 'Tiếng Hàn':
+        return 'KO';
+      case 'Tiếng Pháp':
+        return 'FR';
+      case 'Tiếng Đức':
+        return 'DE';
+      case 'Tiếng Tây Ban Nha':
+        return 'ES';
       default:
         return lang.length >= 2 ? lang.substring(0, 2).toUpperCase() : lang;
     }
@@ -273,9 +292,18 @@ class _LanguageSelectorState extends State<LanguageSelector> {
         return AppStrings.get(currentAppLang, 'lang_vi');
       case 'Tiếng Trung':
         return AppStrings.get(currentAppLang, 'lang_cn');
+      case 'Tiếng Nhật':
+        return AppStrings.get(currentAppLang, 'lang_ja');
+      case 'Tiếng Hàn':
+        return AppStrings.get(currentAppLang, 'lang_ko');
+      case 'Tiếng Pháp':
+        return AppStrings.get(currentAppLang, 'lang_fr');
+      case 'Tiếng Đức':
+        return AppStrings.get(currentAppLang, 'lang_de');
+      case 'Tiếng Tây Ban Nha':
+        return AppStrings.get(currentAppLang, 'lang_es');
       default:
         return langCode;
     }
   }
 }
-

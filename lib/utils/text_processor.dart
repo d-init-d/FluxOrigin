@@ -3,16 +3,26 @@ import 'dart:math';
 class TextProcessor {
   static const int _targetChunkSize = 1000;
   static const int _maxChunkSize = 1500; // Allow exceeding target to preserve sentences
-  static const List<String> _sentenceTerminators = ['.', '!', '?', '\n'];
-  static const List<String> _safeChars = ['.', '\n', '!', '?', '"', '"'];
+  static const List<String> _sentenceTerminators = [
+    '.',
+    '!',
+    '?',
+    '\n',
+    '。',
+    '！',
+    '？',
+    '…',
+  ];
+  static const List<String> _safeChars = ['.', '\n', '!', '?', '"', '”', '。', '！', '？'];
 
-  /// Splits text into chunks, strictly respecting sentence boundaries.
-  /// Will exceed [targetSize] up to [_maxChunkSize] to avoid cutting sentences.
+  /// Splits text into chunks, strictly respecting sentence boundaries (ASCII + CJK).
+  /// Will exceed [targetSize] up to `max(targetSize * 1.5, 1500)` to avoid cutting sentences.
   static List<String> smartSplit(String text,
       {int targetSize = _targetChunkSize}) {
     final List<String> chunks = [];
     int currentPos = 0;
     final int length = text.length;
+    final int dynamicMax = max(_maxChunkSize, (targetSize * 1.5).round());
 
     while (currentPos < length) {
       int endPos = currentPos + targetSize;
@@ -27,22 +37,18 @@ class TextProcessor {
         if (safeSpot != -1) {
           endPos = safeSpot;
         } else {
-          // No terminator found looking back - look FORWARD to complete the sentence
-          // This allows chunks to exceed targetSize but stay under maxChunkSize
+          // Look FORWARD to complete the sentence within dynamicMax
           safeSpot = _findSentenceTerminatorForward(
-              text, endPos, min(currentPos + _maxChunkSize, length));
+              text, endPos, min(currentPos + dynamicMax, length));
 
           if (safeSpot != -1) {
             endPos = safeSpot;
           } else {
-            // Still no terminator - we're in a very long sentence
-            // As last resort, find the end of current sentence even if it exceeds max
+            // Last resort: find the end of current sentence even if longer
             safeSpot = _findSentenceTerminatorForward(text, endPos, length);
-            if (safeSpot != -1 && safeSpot - currentPos <= _maxChunkSize * 2) {
+            if (safeSpot != -1 && safeSpot - currentPos <= dynamicMax * 2) {
               endPos = safeSpot;
             }
-            // If sentence is extremely long, we have no choice but to cut at max
-            // This should be rare in normal text
           }
         }
       }
@@ -62,7 +68,7 @@ class TextProcessor {
     return chunks;
   }
 
-  /// Find sentence terminator looking backward from position
+  /// Find sentence terminator looking backward from position.
   static int _findSentenceTerminatorBackward(
       String text, int fromPos, int minPos, int maxLookBack) {
     for (int i = 0; i < maxLookBack; i++) {
@@ -71,10 +77,13 @@ class TextProcessor {
 
       final String char = text[checkPos];
       if (_sentenceTerminators.contains(char)) {
-        // Include closing quotes after terminator
         int endPos = checkPos + 1;
         while (endPos < text.length &&
-            (text[endPos] == '"' || text[endPos] == '"' || text[endPos] == "'")) {
+            (text[endPos] == '"' ||
+                text[endPos] == '”' ||
+                text[endPos] == '」' ||
+                text[endPos] == '』' ||
+                text[endPos] == "'")) {
           endPos++;
         }
         return endPos;
@@ -83,16 +92,19 @@ class TextProcessor {
     return -1;
   }
 
-  /// Find sentence terminator looking forward from position
+  /// Find sentence terminator looking forward from position.
   static int _findSentenceTerminatorForward(
       String text, int fromPos, int maxPos) {
     for (int i = fromPos; i < maxPos; i++) {
       final String char = text[i];
       if (_sentenceTerminators.contains(char)) {
-        // Include closing quotes after terminator
         int endPos = i + 1;
         while (endPos < text.length &&
-            (text[endPos] == '"' || text[endPos] == '"' || text[endPos] == "'")) {
+            (text[endPos] == '"' ||
+                text[endPos] == '”' ||
+                text[endPos] == '」' ||
+                text[endPos] == '』' ||
+                text[endPos] == "'")) {
           endPos++;
         }
         return endPos;
@@ -101,14 +113,13 @@ class TextProcessor {
     return -1;
   }
 
-  /// Extracts the last 1-2 sentences from a chunk for context passing
+  /// Extracts the last 1-2 sentences from a chunk for context passing.
   static String extractLastSentences(String text, {int maxLength = 200}) {
     if (text.isEmpty) return "";
 
     final trimmed = text.trim();
     if (trimmed.length <= maxLength) return trimmed;
 
-    // Find sentence boundaries from the end
     int sentenceCount = 0;
     int cutPos = trimmed.length;
 
@@ -123,7 +134,6 @@ class TextProcessor {
       }
     }
 
-    // If we couldn't find sentence boundaries, just take the last maxLength chars
     if (cutPos == trimmed.length) {
       cutPos = max(0, trimmed.length - maxLength);
     }
@@ -154,7 +164,6 @@ class TextProcessor {
     int safeMidStart = _findSafeCutForwardLegacy(text, midPoint);
     int safeMidEnd = _findSafeCutBackwards(text, safeMidStart + midSize);
 
-    // Ensure we don't go out of bounds or overlap weirdly
     if (safeMidStart < safeHeadEnd) safeMidStart = safeHeadEnd;
     if (safeMidEnd > totalLen) safeMidEnd = totalLen;
 
@@ -183,7 +192,6 @@ class TextProcessor {
         return idx + 1;
       }
     }
-    // Fallback to space
     final int lastSpace = text.lastIndexOf(' ', limitIndex);
     return lastSpace != -1 ? lastSpace : limitIndex;
   }
@@ -197,7 +205,6 @@ class TextProcessor {
         return idx + 1;
       }
     }
-    // Fallback to space
     final int firstSpace = text.indexOf(' ', startIndex);
     return firstSpace != -1 ? firstSpace + 1 : startIndex;
   }

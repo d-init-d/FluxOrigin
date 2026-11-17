@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import '../theme/app_theme.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../services/dev_logger.dart';
+import '../theme/app_theme.dart';
 
 class DevLogsScreen extends StatefulWidget {
   final bool isDark;
@@ -98,7 +98,6 @@ class _DevLogsScreenState extends State<DevLogsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
           Row(
             children: [
               Text(
@@ -111,13 +110,14 @@ class _DevLogsScreenState extends State<DevLogsScreen> {
               ),
               const SizedBox(width: 16),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.2),
+                  color: Colors.orange.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.orange.withOpacity(0.5)),
+                  border: Border.all(color: Colors.orange.withValues(alpha: 0.5)),
                 ),
-                child: Text(
+                child: const Text(
                   'DEV ONLY',
                   style: TextStyle(
                     fontSize: 10,
@@ -127,7 +127,6 @@ class _DevLogsScreenState extends State<DevLogsScreen> {
                 ),
               ),
               const Spacer(),
-              // Log count
               Text(
                 '${_filteredLogs.length} / ${_logger.logs.length} logs',
                 style: TextStyle(
@@ -137,10 +136,7 @@ class _DevLogsScreenState extends State<DevLogsScreen> {
               ),
             ],
           ),
-
           const SizedBox(height: 24),
-
-          // Controls Row
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -154,10 +150,8 @@ class _DevLogsScreenState extends State<DevLogsScreen> {
             ),
             child: Column(
               children: [
-                // Search and Filter Row
                 Row(
                   children: [
-                    // Search Box
                     Expanded(
                       flex: 2,
                       child: TextField(
@@ -184,7 +178,7 @@ class _DevLogsScreenState extends State<DevLogsScreen> {
                               horizontal: 12, vertical: 10),
                           filled: true,
                           fillColor: widget.isDark
-                              ? Colors.black.withOpacity(0.2)
+                              ? Colors.black.withValues(alpha: 0.2)
                               : AppColors.lightPaper,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(6),
@@ -197,13 +191,11 @@ class _DevLogsScreenState extends State<DevLogsScreen> {
                       ),
                     ),
                     const SizedBox(width: 12),
-
-                    // Level Filter Dropdown
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       decoration: BoxDecoration(
                         color: widget.isDark
-                            ? Colors.black.withOpacity(0.2)
+                            ? Colors.black.withValues(alpha: 0.2)
                             : AppColors.lightPaper,
                         borderRadius: BorderRadius.circular(6),
                       ),
@@ -235,31 +227,32 @@ class _DevLogsScreenState extends State<DevLogsScreen> {
                                 ),
                               ),
                             ),
-                            ...LogLevel.values.map((level) => DropdownMenuItem(
-                                  value: level,
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 8,
-                                        height: 8,
-                                        decoration: BoxDecoration(
-                                          color: _getLevelColor(level),
-                                          shape: BoxShape.circle,
-                                        ),
+                            ...LogLevel.values
+                                .map((level) => DropdownMenuItem(
+                                      value: level,
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            width: 8,
+                                            height: 8,
+                                            decoration: BoxDecoration(
+                                              color: _getLevelColor(level),
+                                              shape: BoxShape.circle,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            level.name.toUpperCase(),
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              color: widget.isDark
+                                                  ? Colors.white
+                                                  : Colors.black,
+                                            ),
+                                          ),
+                                        ],
                                       ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        level.name.toUpperCase(),
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: widget.isDark
-                                              ? Colors.white
-                                              : Colors.black,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                )),
+                                    )),
                           ],
                           onChanged: (value) {
                             setState(() => _selectedLevel = value);
@@ -269,13 +262,9 @@ class _DevLogsScreenState extends State<DevLogsScreen> {
                     ),
                   ],
                 ),
-
                 const SizedBox(height: 12),
-
-                // Action Buttons Row
                 Row(
                   children: [
-                    // Auto-scroll toggle
                     _ActionButton(
                       icon: _autoScroll
                           ? FontAwesomeIcons.lock
@@ -286,8 +275,6 @@ class _DevLogsScreenState extends State<DevLogsScreen> {
                       onTap: () => setState(() => _autoScroll = !_autoScroll),
                     ),
                     const SizedBox(width: 8),
-
-                    // Toggle logging
                     _ActionButton(
                       icon: _logger.isEnabled
                           ? FontAwesomeIcons.play
@@ -300,10 +287,7 @@ class _DevLogsScreenState extends State<DevLogsScreen> {
                         setState(() {});
                       },
                     ),
-
                     const Spacer(),
-
-                    // Copy all logs
                     _ActionButton(
                       icon: FontAwesomeIcons.copy,
                       label: 'Copy All',
@@ -311,8 +295,6 @@ class _DevLogsScreenState extends State<DevLogsScreen> {
                       onTap: () => _copyAllLogs(),
                     ),
                     const SizedBox(width: 8),
-
-                    // Clear logs
                     _ActionButton(
                       icon: FontAwesomeIcons.trash,
                       label: 'Clear',
@@ -328,10 +310,7 @@ class _DevLogsScreenState extends State<DevLogsScreen> {
               ],
             ),
           ),
-
           const SizedBox(height: 16),
-
-          // Logs List
           Expanded(
             child: Container(
               decoration: BoxDecoration(
@@ -412,10 +391,10 @@ ${log.details != null ? '\nDetails:\n${log.details}' : ''}
 
     Clipboard.setData(ClipboardData(text: text));
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Đã copy log!'),
+      const SnackBar(
+        content: Text('Đã copy log!'),
         behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 1),
+        duration: Duration(seconds: 1),
       ),
     );
   }
@@ -474,11 +453,11 @@ class _ActionButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: isDark
-              ? Colors.black.withOpacity(0.2)
-              : Colors.grey.withOpacity(0.1),
+              ? Colors.black.withValues(alpha: 0.2)
+              : Colors.grey.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(6),
           border: Border.all(
-            color: color!.withOpacity(0.3),
+            color: color!.withValues(alpha: 0.3),
           ),
         ),
         child: Row(
@@ -523,10 +502,10 @@ class _LogEntryCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(6),
         border: Border.all(
           color: isExpanded
-              ? levelColor.withOpacity(0.5)
+              ? levelColor.withValues(alpha: 0.5)
               : (isDark
                   ? const Color(0xFF3C3C3C)
-                  : Colors.grey.withOpacity(0.2)),
+                  : Colors.grey.withValues(alpha: 0.2)),
         ),
       ),
       child: InkWell(
@@ -537,15 +516,13 @@ class _LogEntryCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header Row
               Row(
                 children: [
-                  // Level Badge
                   Container(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: levelColor.withOpacity(0.2),
+                      color: levelColor.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
@@ -559,15 +536,11 @@ class _LogEntryCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-
-                  // Category
                   Container(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: isDark
-                          ? Colors.blue.withOpacity(0.1)
-                          : Colors.blue.withOpacity(0.1),
+                      color: Colors.blue.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
@@ -579,10 +552,7 @@ class _LogEntryCard extends StatelessWidget {
                       ),
                     ),
                   ),
-
                   const Spacer(),
-
-                  // Timestamp
                   Text(
                     _formatTimestamp(log.timestamp),
                     style: TextStyle(
@@ -591,7 +561,6 @@ class _LogEntryCard extends StatelessWidget {
                       color: isDark ? Colors.grey[500] : Colors.grey[600],
                     ),
                   ),
-
                   if (log.details != null) ...[
                     const SizedBox(width: 8),
                     FaIcon(
@@ -604,10 +573,7 @@ class _LogEntryCard extends StatelessWidget {
                   ],
                 ],
               ),
-
               const SizedBox(height: 6),
-
-              // Message
               SelectableText(
                 log.message,
                 style: TextStyle(
@@ -616,8 +582,6 @@ class _LogEntryCard extends StatelessWidget {
                   color: isDark ? Colors.grey[300] : Colors.grey[800],
                 ),
               ),
-
-              // Expanded Details
               if (isExpanded && log.details != null) ...[
                 const SizedBox(height: 8),
                 Container(
@@ -625,8 +589,8 @@ class _LogEntryCard extends StatelessWidget {
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     color: isDark
-                        ? Colors.black.withOpacity(0.3)
-                        : Colors.grey.withOpacity(0.1),
+                        ? Colors.black.withValues(alpha: 0.3)
+                        : Colors.grey.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Column(

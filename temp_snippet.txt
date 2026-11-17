@@ -1,3 +1,0 @@
-﻿e == 'Tiáº¿ng Viá»‡t') {
-        finalSystemPrompt =
-            "$strictSystemPrompt\n\n$constraints\n\n$contextInstruction### YÃŠU Cáº¦U Dá»ŠCH THUáº¬T NÃ‚NG CAO:\n1. Dá»‹ch CHI TIáº¾T tá»«ng cÃ¢u, tuyá»‡t Ä‘á»‘i KHÃ”NG Ä‘Æ°á»£c tÃ³m táº¯t hay bá» sÃ³t Ã½.\n2. Giá»¯ nguyÃªn sáº¯c thÃ¡i biá»ƒu cáº£m, cÃ¡c thÃ¡n tá»«, mÃ´ táº£ ná»™i tÃ¢m cá»§a nhÃ¢n váº­t.\n3. Náº¿u gáº·p thÆ¡ ca hoáº·c cÃ¢u Ä‘á»‘i, hÃ£y dá»‹ch sao cho váº§n Ä‘iá»‡u hoáº·c giá»¯ nguyÃªn HÃ¡n Viá»‡t náº¿u cáº§n.\n4. VÄƒn phong

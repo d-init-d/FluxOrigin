@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'theme/app_theme.dart';
@@ -43,6 +44,8 @@ class _MyAppState extends State<MyApp> {
                   );
                 }
 
+                final double titleBarHeight = Platform.isMacOS ? 38 : 32;
+
                 return Stack(
                   children: [
                     Scaffold(
@@ -51,17 +54,18 @@ class _MyAppState extends State<MyApp> {
                           : AppColors.lightPaper,
                       body: Column(
                         children: [
-                          // CRITICAL: Fixed height TitleBar - NO Expanded
                           SizedBox(
-                            height: 32,
-                            child: TitleBar(isDark: themeNotifier.isDark),
+                            height: titleBarHeight,
+                            child: TitleBar(
+                              isDark: themeNotifier.isDark,
+                              onProviderStatusTap: () {
+                                setState(() => _selectedIndex = 4);
+                              },
+                            ),
                           ),
-
-                          // CRITICAL: Expanded Row for remaining vertical space
                           Expanded(
                             child: Row(
                               children: [
-                                // CRITICAL: Fixed width Sidebar - NO Expanded
                                 SizedBox(
                                   width: 250,
                                   child: Sidebar(
@@ -72,8 +76,6 @@ class _MyAppState extends State<MyApp> {
                                     },
                                   ),
                                 ),
-
-                                // CRITICAL: Expanded content area - fills remaining horizontal space
                                 Expanded(
                                   child: Container(
                                     color: themeNotifier.isDark
@@ -83,17 +85,24 @@ class _MyAppState extends State<MyApp> {
                                       index: _selectedIndex,
                                       children: [
                                         TranslateScreen(
-                                            isDark: themeNotifier.isDark),
+                                          isDark: themeNotifier.isDark,
+                                          isActive: _selectedIndex == 0,
+                                        ),
                                         BatchTranslateScreen(
-                                            isDark: themeNotifier.isDark),
+                                          isDark: themeNotifier.isDark,
+                                        ),
                                         HistoryScreen(
-                                            isDark: themeNotifier.isDark),
+                                          isDark: themeNotifier.isDark,
+                                        ),
                                         DictionaryScreen(
-                                            isDark: themeNotifier.isDark),
+                                          isDark: themeNotifier.isDark,
+                                        ),
                                         SettingsScreen(
-                                            isDark: themeNotifier.isDark),
+                                          isDark: themeNotifier.isDark,
+                                        ),
                                         DevLogsScreen(
-                                            isDark: themeNotifier.isDark),
+                                          isDark: themeNotifier.isDark,
+                                        ),
                                       ],
                                     ),
                                   ),

@@ -13,6 +13,12 @@ class TranslationProgress {
   int currentIndex;
   DateTime lastUpdated;
 
+  // Optional v3.0 D-Transcreate metadata (omitted from JSON when null to
+  // preserve byte-exact baseline serialization).
+  final String? styleGuide;
+  final Map<String, dynamic>? epubMetadata;
+  final Map<String, dynamic>? qaSummary;
+
   TranslationProgress({
     required this.sourcePath,
     required this.outputPath,
@@ -23,6 +29,9 @@ class TranslationProgress {
     required this.translatedChunks,
     required this.currentIndex,
     required this.lastUpdated,
+    this.styleGuide,
+    this.epubMetadata,
+    this.qaSummary,
   });
 
   Map<String, dynamic> toJson() {
@@ -36,6 +45,9 @@ class TranslationProgress {
       'translatedChunks': translatedChunks,
       'currentIndex': currentIndex,
       'lastUpdated': lastUpdated.toIso8601String(),
+      if (styleGuide != null) 'styleGuide': styleGuide,
+      if (epubMetadata != null) 'epubMetadata': epubMetadata,
+      if (qaSummary != null) 'qaSummary': qaSummary,
     };
   }
 
@@ -50,6 +62,13 @@ class TranslationProgress {
       translatedChunks: List<String?>.from(json['translatedChunks']),
       currentIndex: json['currentIndex'],
       lastUpdated: DateTime.parse(json['lastUpdated']),
+      styleGuide: json['styleGuide'] as String?,
+      epubMetadata: json['epubMetadata'] is Map
+          ? Map<String, dynamic>.from(json['epubMetadata'] as Map)
+          : null,
+      qaSummary: json['qaSummary'] is Map
+          ? Map<String, dynamic>.from(json['qaSummary'] as Map)
+          : null,
     );
   }
 
@@ -61,7 +80,8 @@ class TranslationProgress {
       final json = jsonDecode(content);
       return TranslationProgress.fromJson(json);
     } catch (e) {
-      DevLogger().error('TranslationProgress', 'Error loading progress', details: e.toString());
+      DevLogger().error('TranslationProgress', 'Error loading progress',
+          details: e.toString());
       return null;
     }
   }

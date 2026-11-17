@@ -1,19 +1,23 @@
 import 'dart:io';
-import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:provider/provider.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:path/path.dart' as path;
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../theme/app_theme.dart';
-import '../widgets/language_selector.dart';
-import '../widgets/file_upload_zone.dart';
 import '../../controllers/translation_controller.dart';
 import '../../services/ai_service.dart';
 import '../../services/dev_logger.dart';
-import '../theme/config_provider.dart';
+import '../../services/epub_pipeline_service.dart';
+import '../../services/qa_verifier_service.dart';
 import '../../utils/app_strings.dart';
+import '../../utils/desktop_helpers.dart';
+import '../theme/app_theme.dart';
+import '../theme/config_provider.dart';
+import '../widgets/file_upload_zone.dart';
+import '../widgets/language_selector.dart';
 import '../widgets/ollama_connection_dialog.dart';
 
 enum TranslationState { idle, fileSelected, processing, finished }
@@ -35,30 +39,53 @@ class TranslateScreen extends StatefulWidget {
 class _TranslateScreenState extends State<TranslateScreen> {
   String _sourceLang = 'Tiếng Anh';
   String _targetLang = 'Tiếng Việt';
+  String _selectedGenre = 'AUTO';
   bool _useCustomDict = true;
 
-  // State Machine
   TranslationState _currentState = TranslationState.idle;
   String? _selectedFilePath;
   String? _selectedDictionaryPath;
   String? _translatedContent;
+  List<int>? _translatedEpubBytes;
+  QaReport? _qaReport;
+  String? _workspacePath;
 
-  // Processing State
   final TranslationController _controller = TranslationController();
   double _progress = 0.0;
   String _statusMessage = "";
+  DateTime? _runStartedAt;
 
-  // Live translation preview
   String _currentSourceChunk = "";
   String _currentTranslatedChunk = "";
   int _currentChunkIndex = 0;
   int _totalChunks = 0;
 
-  // Resume state
   bool _hasExistingProgress = false;
   double _existingProgressPercent = 0.0;
 
-  final List<String> _allLanguages = ['Tiếng Anh', 'Tiếng Trung', 'Tiếng Việt'];
+  static const List<String> _allLanguages = [
+    'Tiếng Anh',
+    'Tiếng Trung',
+    'Tiếng Việt',
+    'Tiếng Nhật',
+    'Tiếng Hàn',
+    'Tiếng Pháp',
+    'Tiếng Đức',
+    'Tiếng Tây Ban Nha',
+  ];
+
+  static const List<(String, String)> _genreOptions = [
+    ('AUTO', 'genre_auto'),
+    ('KIEMHIEP', 'genre_kiemhiep'),
+    ('TIEN_HIEP', 'genre_tienhiep'),
+    ('NGONTINH', 'genre_ngontinh'),
+    ('FANTASY', 'genre_fantasy'),
+    ('KINHDOANH', 'genre_kinhdoanh'),
+    ('KHOAHOC', 'genre_khoahoc'),
+    ('KYTHUAT', 'genre_kythuat'),
+    ('PHAPLY', 'genre_phaply'),
+    ('KHAC', 'genre_khac'),
+  ];
 
   void _swapLanguages() {
     setState(() {
@@ -73,10 +100,14 @@ class _TranslateScreenState extends State<TranslateScreen> {
       _currentState = TranslationState.idle;
       _selectedFilePath = null;
       _translatedContent = null;
+      _translatedEpubBytes = null;
+      _qaReport = null;
+      _workspacePath = null;
       _progress = 0.0;
       _statusMessage = "";
       _hasExistingProgress = false;
       _existingProgressPercent = 0.0;
+      _runStartedAt = null;
     });
   }
 
@@ -85,7 +116,6 @@ class _TranslateScreenState extends State<TranslateScreen> {
       _selectedFilePath = filePath;
       _currentState = TranslationState.fileSelected;
     });
-    // Check for existing progress
     await _checkExistingProgress();
   }
 
@@ -134,37 +164,20 @@ class _TranslateScreenState extends State<TranslateScreen> {
     final lang = configProvider.appLanguage;
 
     if (!configProvider.isConfigured) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            AppStrings.get(lang, 'please_configure_project'),
-            style: const TextStyle(color: AppColors.lightPrimary),
-          ),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-            side: BorderSide(color: Colors.red.withValues(alpha: 0.5)),
-          ),
-          backgroundColor: widget.isDark ? AppColors.darkSurface : Colors.white,
-          margin: const EdgeInsets.all(16),
-          elevation: 6,
-        ),
-      );
+      _showSnack(AppStrings.get(lang, 'please_configure_project'),
+          isError: true);
       return;
     }
 
     if (_selectedFilePath == null) return;
 
-    // Pre-flight connection check
+    // Pre-flight connection check across Ollama / LM Studio / BYOK
     final aiService = AIService();
     aiService.setBaseUrl(configProvider.currentAiUrl);
-    aiService.setProviderType(
-      configProvider.aiProvider == AIProvider.lmStudio
-          ? AIProviderType.lmStudio
-          : AIProviderType.ollama,
-    );
+    aiService.setProviderType(configProvider.effectiveAiServiceType);
+    aiService.setApiKey(configProvider.activeApiKey);
 
-    final (connected, _, __) = await aiService.checkConnection();
+    final (connected, _, _) = await aiService.checkConnection();
     if (!connected) {
       if (mounted) {
         showDialog(
@@ -184,23 +197,24 @@ class _TranslateScreenState extends State<TranslateScreen> {
       _statusMessage = resume
           ? AppStrings.get(lang, 'resuming')
           : AppStrings.get(lang, 'initializing');
-      // Reset live translation preview
       _currentSourceChunk = "";
       _currentTranslatedChunk = "";
       _currentChunkIndex = 0;
       _totalChunks = 0;
+      _runStartedAt = DateTime.now();
+      _qaReport = null;
+      _translatedEpubBytes = null;
+      _workspacePath = null;
     });
 
-    // Set AI config from provider
+    // Apply full AI & D-Transcreate config
     _controller.setAIUrl(configProvider.currentAiUrl);
-    _controller.setAIProviderType(
-      configProvider.aiProvider == AIProvider.lmStudio
-          ? AIProviderType.lmStudio
-          : AIProviderType.ollama,
-    );
+    _controller.setAIProviderType(configProvider.effectiveAiServiceType);
+    _controller.setAIApiKey(configProvider.activeApiKey);
+    _controller.setTemperature(configProvider.temperature);
+    _controller.setChunkSize(configProvider.targetChunkSize);
+    _controller.setDeepMode(configProvider.dTranscreateDeepMode);
 
-    // Switch ON = Local Mode (Offline) -> allowInternet: false
-    // Switch OFF = Internet Mode (Online) -> allowInternet: true
     final bool allowInternet = !_useCustomDict;
 
     try {
@@ -213,10 +227,9 @@ class _TranslateScreenState extends State<TranslateScreen> {
         allowInternet: allowInternet,
         resume: resume,
         appLanguage: lang,
-        // FIX ISSUE #6: Pass the user-selected dictionary path so the
-        // controller can use it instead of regenerating an AI glossary
-        // that overrides the user's entries.
         userGlossaryPath: _useCustomDict ? _selectedDictionaryPath : null,
+        genreOverride: _selectedGenre,
+        preserveEpubLayout: configProvider.preserveEpubLayout,
         onUpdate: (status, progress) {
           if (mounted) {
             setState(() {
@@ -238,17 +251,17 @@ class _TranslateScreenState extends State<TranslateScreen> {
       );
 
       if (mounted) {
-        // result is null if paused
         if (result == null) {
-          // Paused - go back to file selected state
           await _checkExistingProgress();
           setState(() {
             _currentState = TranslationState.fileSelected;
           });
         } else {
-          // Completed
           setState(() {
             _translatedContent = result;
+            _translatedEpubBytes = _controller.lastTranslatedEpubBytes;
+            _qaReport = _controller.lastQaReport;
+            _workspacePath = _controller.lastWorkspacePath;
             _currentState = TranslationState.finished;
             _progress = 1.0;
             _hasExistingProgress = false;
@@ -263,14 +276,14 @@ class _TranslateScreenState extends State<TranslateScreen> {
 
         final lang = context.read<ConfigProvider>().appLanguage;
         setState(() {
-          _currentState = TranslationState.fileSelected; // Go back to selected
+          _currentState = TranslationState.fileSelected;
           _statusMessage = "${AppStrings.get(lang, 'error_prefix')}$e";
         });
 
-        // Check if it's a connection error and show custom dialog
         final errorStr = e.toString().toLowerCase();
         if (errorStr.contains('failed to connect') ||
             errorStr.contains('connection') ||
+            errorStr.contains('api key') ||
             errorStr.contains('socket')) {
           showDialog(
             context: context,
@@ -280,24 +293,8 @@ class _TranslateScreenState extends State<TranslateScreen> {
             ),
           );
         } else {
-          // Show SnackBar for other errors (non-connection related)
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                '${AppStrings.get(lang, 'error_prefix')}$e',
-                style: const TextStyle(color: AppColors.lightPrimary),
-              ),
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-                side: BorderSide(color: Colors.red.withValues(alpha: 0.5)),
-              ),
-              backgroundColor:
-                  widget.isDark ? AppColors.darkSurface : Colors.white,
-              margin: const EdgeInsets.all(16),
-              elevation: 6,
-            ),
-          );
+          _showSnack('${AppStrings.get(lang, 'error_prefix')}$e',
+              isError: true);
         }
       }
     }
@@ -311,67 +308,137 @@ class _TranslateScreenState extends State<TranslateScreen> {
     });
   }
 
-  Future<void> _saveResult() async {
+  Future<void> _saveTextOrMarkdown(String ext) async {
     if (_translatedContent == null || _selectedFilePath == null) return;
-
     final lang = context.read<ConfigProvider>().appLanguage;
-    final String fileName = path.basenameWithoutExtension(_selectedFilePath!);
-    // Output is ALWAYS .txt regardless of input format
-    final String defaultName = "${fileName}_translated.txt";
+    final fileName = path.basenameWithoutExtension(_selectedFilePath!);
+    final defaultName = '${fileName}_translated.$ext';
 
-    String? outputFile = await FilePicker.platform.saveFile(
+    final outputFile = await FilePicker.platform.saveFile(
       dialogTitle: AppStrings.get(lang, 'save_result_dialog_title'),
       fileName: defaultName,
       type: FileType.custom,
-      allowedExtensions: ['txt'], // Output is always TXT
+      allowedExtensions: [ext],
     );
 
     if (outputFile != null) {
       try {
-        final File file = File(outputFile);
-        await file.writeAsString(_translatedContent!);
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                '${AppStrings.get(lang, 'file_saved_at')}$outputFile',
-                style: const TextStyle(color: AppColors.lightPrimary),
-              ),
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-                side: BorderSide(color: Colors.green.withValues(alpha: 0.5)),
-              ),
-              backgroundColor:
-                  widget.isDark ? AppColors.darkSurface : Colors.white,
-              margin: const EdgeInsets.all(16),
-              elevation: 6,
-            ),
-          );
-        }
+        await File(outputFile).writeAsString(_translatedContent!, flush: true);
+        _showSnack('${AppStrings.get(lang, 'file_saved_at')}$outputFile');
       } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                '${AppStrings.get(lang, 'error_saving_file')}$e',
-                style: const TextStyle(color: AppColors.lightPrimary),
-              ),
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-                side: BorderSide(color: Colors.red.withValues(alpha: 0.5)),
-              ),
-              backgroundColor:
-                  widget.isDark ? AppColors.darkSurface : Colors.white,
-              margin: const EdgeInsets.all(16),
-              elevation: 6,
-            ),
-          );
-        }
+        _showSnack('${AppStrings.get(lang, 'error_saving_file')}$e',
+            isError: true);
       }
     }
+  }
+
+  Future<void> _saveEpub() async {
+    if (_translatedContent == null || _selectedFilePath == null) return;
+    final lang = context.read<ConfigProvider>().appLanguage;
+    final fileName = path.basenameWithoutExtension(_selectedFilePath!);
+    final defaultName = '${fileName}_translated.epub';
+
+    final outputFile = await FilePicker.platform.saveFile(
+      dialogTitle: AppStrings.get(lang, 'save_result_dialog_title'),
+      fileName: defaultName,
+      type: FileType.custom,
+      allowedExtensions: ['epub'],
+    );
+
+    if (outputFile != null) {
+      try {
+        final bytes = (_translatedEpubBytes != null &&
+                _translatedEpubBytes!.isNotEmpty)
+            ? _translatedEpubBytes!
+            : EpubPipelineService.buildCleanEpubFromText(
+                title: fileName,
+                content: _translatedContent!,
+                targetLanguageName: _targetLang,
+              );
+        await File(outputFile).writeAsBytes(bytes, flush: true);
+        _showSnack('${AppStrings.get(lang, 'file_saved_at')}$outputFile');
+      } catch (e) {
+        _showSnack('${AppStrings.get(lang, 'error_saving_file')}$e',
+            isError: true);
+      }
+    }
+  }
+
+  void _showSnack(String msg, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          msg,
+          style: TextStyle(
+            color: widget.isDark ? Colors.white : AppColors.lightPrimary,
+          ),
+        ),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(
+            color: (isError ? Colors.red : Colors.green).withValues(alpha: 0.5),
+          ),
+        ),
+        backgroundColor: widget.isDark ? AppColors.darkSurface : Colors.white,
+        margin: const EdgeInsets.all(16),
+        elevation: 6,
+      ),
+    );
+  }
+
+  void _showQaDialog() {
+    if (_qaReport == null) return;
+    final report = _qaReport!;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: widget.isDark ? AppColors.darkSurface : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            FaIcon(
+              report.passed
+                  ? FontAwesomeIcons.circleCheck
+                  : FontAwesomeIcons.triangleExclamation,
+              size: 18,
+              color: report.passed ? Colors.green : Colors.orange,
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'D-Transcreate QA: ${report.score}/100',
+              style: GoogleFonts.merriweather(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: widget.isDark ? Colors.white : AppColors.lightPrimary,
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 560,
+          height: 360,
+          child: SingleChildScrollView(
+            child: SelectableText(
+              report.toMarkdown(),
+              style: TextStyle(
+                fontSize: 12,
+                fontFamily: 'Consolas',
+                height: 1.5,
+                color: widget.isDark ? Colors.grey[300] : Colors.grey[800],
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _reportContent() async {
@@ -388,66 +455,115 @@ class _TranslateScreenState extends State<TranslateScreen> {
     }
   }
 
+  String _formatEta() {
+    if (_runStartedAt == null || _currentChunkIndex <= 1 || _totalChunks <= 1) {
+      return '';
+    }
+    final completed = _currentChunkIndex - 1;
+    final elapsedSec = DateTime.now().difference(_runStartedAt!).inSeconds;
+    if (elapsedSec <= 0 || completed <= 0) return '';
+    final remaining = _totalChunks - completed;
+    final estSec = ((elapsedSec / completed) * remaining).round();
+    if (estSec >= 60) {
+      return ' · ~${(estSec / 60).ceil()}m left';
+    }
+    return ' · ~${estSec}s left';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final lang = context.watch<ConfigProvider>().appLanguage;
     return Container(
       padding: const EdgeInsets.all(24),
       child: Column(
         children: [
-          // Language Control
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          // Language & Domain Control Row (compact, faithfully aligned)
+          Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 10,
+            runSpacing: 10,
             children: [
               SizedBox(
-                width: 192,
+                width: 176,
                 child: LanguageSelector(
                   value: _sourceLang,
                   isDark: widget.isDark,
-                  onChange: (lang) {
+                  onChange: (l) {
                     setState(() {
-                      if (lang == _targetLang) {
+                      if (l == _targetLang) {
                         _targetLang = _sourceLang;
                       }
-                      _sourceLang = lang;
+                      _sourceLang = l;
                     });
                   },
                   availableLanguages: _allLanguages,
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: IconButton(
-                  onPressed: _swapLanguages,
-                  icon: FaIcon(
-                    FontAwesomeIcons.rightLeft,
-                    size: 16,
-                    color:
-                        widget.isDark ? Colors.white : AppColors.lightPrimary,
-                  ),
-                  style: IconButton.styleFrom(
-                    backgroundColor: widget.isDark
-                        ? Colors.white.withValues(alpha: 0.1)
-                        : AppColors.lightPrimary.withValues(alpha: 0.1),
-                    shape: const CircleBorder(),
-                  ),
+              IconButton(
+                onPressed: _swapLanguages,
+                icon: FaIcon(
+                  FontAwesomeIcons.rightLeft,
+                  size: 14,
+                  color: widget.isDark ? Colors.white : AppColors.lightPrimary,
+                ),
+                style: IconButton.styleFrom(
+                  backgroundColor: widget.isDark
+                      ? Colors.white.withValues(alpha: 0.1)
+                      : AppColors.lightPrimary.withValues(alpha: 0.1),
+                  shape: const CircleBorder(),
                 ),
               ),
               SizedBox(
-                width: 192,
+                width: 176,
                 child: LanguageSelector(
                   value: _targetLang,
                   isDark: widget.isDark,
-                  onChange: (lang) => setState(() => _targetLang = lang),
+                  onChange: (l) => setState(() => _targetLang = l),
                   availableLanguages: _allLanguages,
                   disabledLanguage: _sourceLang,
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                decoration: BoxDecoration(
+                  color: widget.isDark ? AppColors.darkSurface : Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: widget.isDark
+                        ? const Color(0xFF444444)
+                        : AppColors.lightBorder,
+                  ),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _selectedGenre,
+                    dropdownColor:
+                        widget.isDark ? AppColors.darkSurface : Colors.white,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color:
+                          widget.isDark ? Colors.grey[200] : AppColors.lightPrimary,
+                    ),
+                    items: _genreOptions
+                        .map((g) => DropdownMenuItem<String>(
+                              value: g.$1,
+                              child: Text(AppStrings.get(lang, g.$2)),
+                            ))
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) setState(() => _selectedGenre = v);
+                    },
+                  ),
                 ),
               ),
             ],
           ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
 
-          // Specialized Mode Content (Dictionary + File Upload)
+          // Dictionary + File Upload Zone
           Expanded(
             child: _buildSpecializedMode(),
           ),
@@ -486,7 +602,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
 
     return Center(
       child: Container(
-        constraints: const BoxConstraints(maxWidth: 400),
+        constraints: const BoxConstraints(maxWidth: 420),
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: widget.isDark ? AppColors.darkSurface : Colors.white,
@@ -496,7 +612,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
+              color: Colors.black.withValues(alpha: 0.08),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -505,7 +621,6 @@ class _TranslateScreenState extends State<TranslateScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // File Card
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -532,8 +647,12 @@ class _TranslateScreenState extends State<TranslateScreen> {
                     ),
                     child: Center(
                       child: FaIcon(
-                        FontAwesomeIcons.fileLines,
-                        size: 24,
+                        fileName.toLowerCase().endsWith('.epub')
+                            ? FontAwesomeIcons.bookOpen
+                            : (fileName.toLowerCase().endsWith('.pdf')
+                                ? FontAwesomeIcons.filePdf
+                                : FontAwesomeIcons.fileLines),
+                        size: 22,
                         color: widget.isDark
                             ? Colors.white
                             : AppColors.lightPrimary,
@@ -550,7 +669,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
                           style: TextStyle(
                             fontFamily: 'Merriweather',
                             fontWeight: FontWeight.bold,
-                            fontSize: 16,
+                            fontSize: 15,
                             color: widget.isDark
                                 ? Colors.white
                                 : AppColors.lightPrimary,
@@ -571,7 +690,6 @@ class _TranslateScreenState extends State<TranslateScreen> {
                       ],
                     ),
                   ),
-                  // Delete progress button (only show if progress exists)
                   if (_hasExistingProgress)
                     IconButton(
                       onPressed: _deleteProgress,
@@ -580,13 +698,8 @@ class _TranslateScreenState extends State<TranslateScreen> {
                         size: 14,
                         color: Colors.red[400],
                       ),
-                      tooltip: AppStrings.get(lang, 'delete_progress_tooltip'),
-                      style: IconButton.styleFrom(
-                        backgroundColor: widget.isDark
-                            ? Colors.red.withValues(alpha: 0.1)
-                            : Colors.red.withValues(alpha: 0.1),
-                        shape: const CircleBorder(),
-                      ),
+                      tooltip:
+                          AppStrings.get(lang, 'delete_progress_tooltip'),
                     ),
                   IconButton(
                     onPressed: _reset,
@@ -596,19 +709,11 @@ class _TranslateScreenState extends State<TranslateScreen> {
                       color:
                           widget.isDark ? Colors.grey[400] : Colors.grey[500],
                     ),
-                    style: IconButton.styleFrom(
-                      backgroundColor: widget.isDark
-                          ? Colors.white.withValues(alpha: 0.1)
-                          : Colors.grey[200],
-                      shape: const CircleBorder(),
-                    ),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 16),
-
-            // Start/Resume Button
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -622,7 +727,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
                       ? '${AppStrings.get(lang, 'continue_translation')} - $progressPercent%'
                       : AppStrings.get(lang, 'start_translation'),
                   style: const TextStyle(
-                    fontSize: 16,
+                    fontSize: 15,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 1,
                   ),
@@ -632,15 +737,13 @@ class _TranslateScreenState extends State<TranslateScreen> {
                       widget.isDark ? Colors.white : AppColors.lightPrimary,
                   foregroundColor: widget.isDark ? Colors.black : Colors.white,
                   elevation: 0,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
               ),
             ),
-
-            // Start Fresh button (only show if progress exists)
             if (_hasExistingProgress) ...[
               const SizedBox(height: 8),
               TextButton(
@@ -667,8 +770,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
     final lang = context.watch<ConfigProvider>().appLanguage;
     return Center(
       child: Container(
-        width: 900,
-        height: 600,
+        constraints: const BoxConstraints(maxWidth: 960, maxHeight: 620),
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: widget.isDark ? AppColors.darkSurface : Colors.white,
@@ -679,7 +781,6 @@ class _TranslateScreenState extends State<TranslateScreen> {
         ),
         child: Column(
           children: [
-            // Header with progress
             Row(
               children: [
                 Expanded(
@@ -732,7 +833,6 @@ class _TranslateScreenState extends State<TranslateScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            // Progress bar
             LinearProgressIndicator(
               value: _progress > 0 ? _progress : null,
               minHeight: 6,
@@ -742,20 +842,17 @@ class _TranslateScreenState extends State<TranslateScreen> {
                   : Colors.grey[200],
               color: widget.isDark ? Colors.white : AppColors.lightPrimary,
             ),
-            const SizedBox(height: 16),
-            // Chunk info
+            const SizedBox(height: 14),
             if (_totalChunks > 0)
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: widget.isDark
-                      ? Colors.blue.withValues(alpha: 0.2)
-                      : Colors.blue.withValues(alpha: 0.1),
+                  color: Colors.blue.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  "${AppStrings.get(lang, 'chunk_progress')} $_currentChunkIndex / $_totalChunks",
+                  "${AppStrings.get(lang, 'chunk_progress')} $_currentChunkIndex / $_totalChunks${_formatEta()}",
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
@@ -763,12 +860,10 @@ class _TranslateScreenState extends State<TranslateScreen> {
                   ),
                 ),
               ),
-            const SizedBox(height: 16),
-            // Translation preview panels
+            const SizedBox(height: 14),
             Expanded(
               child: Row(
                 children: [
-                  // Source text panel
                   Expanded(
                     child: _buildTextPanel(
                       title: AppStrings.get(lang, 'source_text_panel'),
@@ -778,7 +873,6 @@ class _TranslateScreenState extends State<TranslateScreen> {
                     ),
                   ),
                   const SizedBox(width: 16),
-                  // Translated text panel
                   Expanded(
                     child: _buildTextPanel(
                       title: AppStrings.get(lang, 'translated_text_panel'),
@@ -793,19 +887,15 @@ class _TranslateScreenState extends State<TranslateScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            // Action buttons
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Pause Button
                 ElevatedButton.icon(
                   onPressed: _requestPause,
                   icon: const FaIcon(FontAwesomeIcons.pause, size: 14),
                   label: Text(AppStrings.get(lang, 'pause')),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: widget.isDark
-                        ? Colors.orange.withValues(alpha: 0.2)
-                        : Colors.orange.withValues(alpha: 0.1),
+                    backgroundColor: Colors.orange.withValues(alpha: 0.15),
                     foregroundColor: Colors.orange,
                     elevation: 0,
                     padding: const EdgeInsets.symmetric(
@@ -819,7 +909,6 @@ class _TranslateScreenState extends State<TranslateScreen> {
                   ),
                 ),
                 const SizedBox(width: 16),
-                // Cancel Button
                 TextButton(
                   onPressed: () {
                     _controller.requestPause();
@@ -860,7 +949,6 @@ class _TranslateScreenState extends State<TranslateScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Panel header
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
@@ -898,18 +986,19 @@ class _TranslateScreenState extends State<TranslateScreen> {
               ],
             ),
           ),
-          // Panel content
           Expanded(
             child: content.isEmpty
                 ? Center(
                     child: Text(
-                      AppStrings.get(context.read<ConfigProvider>().appLanguage,
+                      AppStrings.get(
+                          context.read<ConfigProvider>().appLanguage,
                           'waiting_data'),
                       style: TextStyle(
                         fontSize: 13,
                         fontStyle: FontStyle.italic,
-                        color:
-                            widget.isDark ? Colors.grey[600] : Colors.grey[400],
+                        color: widget.isDark
+                            ? Colors.grey[600]
+                            : Colors.grey[400],
                       ),
                     ),
                   )
@@ -920,8 +1009,9 @@ class _TranslateScreenState extends State<TranslateScreen> {
                       style: TextStyle(
                         fontSize: 13,
                         height: 1.6,
-                        color:
-                            widget.isDark ? Colors.grey[300] : Colors.grey[800],
+                        color: widget.isDark
+                            ? Colors.grey[300]
+                            : Colors.grey[800],
                       ),
                     ),
                   ),
@@ -933,10 +1023,13 @@ class _TranslateScreenState extends State<TranslateScreen> {
 
   Widget _buildFinishedView() {
     final lang = context.watch<ConfigProvider>().appLanguage;
+    final hasLayoutEpub =
+        _translatedEpubBytes != null && _translatedEpubBytes!.isNotEmpty;
+
     return Center(
       child: Container(
-        width: 500,
-        padding: const EdgeInsets.all(32),
+        width: 540,
+        padding: const EdgeInsets.all(28),
         decoration: BoxDecoration(
           color: widget.isDark ? AppColors.darkSurface : Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -948,8 +1041,8 @@ class _TranslateScreenState extends State<TranslateScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 80,
-              height: 80,
+              width: 72,
+              height: 72,
               decoration: BoxDecoration(
                 color: Colors.green.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
@@ -957,12 +1050,12 @@ class _TranslateScreenState extends State<TranslateScreen> {
               child: const Center(
                 child: FaIcon(
                   FontAwesomeIcons.check,
-                  size: 40,
+                  size: 34,
                   color: Colors.green,
                 ),
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 18),
             Text(
               AppStrings.get(lang, 'translation_success'),
               style: TextStyle(
@@ -972,19 +1065,41 @@ class _TranslateScreenState extends State<TranslateScreen> {
                 color: widget.isDark ? Colors.white : AppColors.lightPrimary,
               ),
             ),
-            const SizedBox(height: 32),
+            if (_qaReport != null) ...[
+              const SizedBox(height: 10),
+              ActionChip(
+                avatar: FaIcon(
+                  _qaReport!.passed
+                      ? FontAwesomeIcons.shieldHalved
+                      : FontAwesomeIcons.triangleExclamation,
+                  size: 13,
+                  color: _qaReport!.passed ? Colors.green : Colors.orange,
+                ),
+                label: Text(
+                  '${AppStrings.get(lang, 'qa_score_label')}: ${_qaReport!.score}/100 (${_qaReport!.warningCount} warn)',
+                  style: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+                onPressed: _showQaDialog,
+              ),
+            ],
+            const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
-              height: 56,
+              height: 50,
               child: ElevatedButton.icon(
-                onPressed: _saveResult,
-                icon: const FaIcon(FontAwesomeIcons.floppyDisk, size: 18),
+                onPressed: hasLayoutEpub
+                    ? _saveEpub
+                    : () => _saveTextOrMarkdown('txt'),
+                icon: const FaIcon(FontAwesomeIcons.floppyDisk, size: 16),
                 label: Text(
-                  AppStrings.get(lang, 'save_result'),
+                  hasLayoutEpub
+                      ? AppStrings.get(lang, 'save_epub')
+                      : AppStrings.get(lang, 'save_result'),
                   style: const TextStyle(
-                    fontSize: 16,
+                    fontSize: 14,
                     fontWeight: FontWeight.bold,
-                    letterSpacing: 1,
+                    letterSpacing: 0.8,
                   ),
                 ),
                 style: ElevatedButton.styleFrom(
@@ -998,29 +1113,52 @@ class _TranslateScreenState extends State<TranslateScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (!hasLayoutEpub)
+                  OutlinedButton.icon(
+                    onPressed: _saveEpub,
+                    icon: const FaIcon(FontAwesomeIcons.book, size: 12),
+                    label: Text(AppStrings.get(lang, 'save_epub'),
+                        style: const TextStyle(fontSize: 12)),
+                  )
+                else
+                  OutlinedButton.icon(
+                    onPressed: () => _saveTextOrMarkdown('txt'),
+                    icon: const FaIcon(FontAwesomeIcons.fileLines, size: 12),
+                    label: Text(AppStrings.get(lang, 'save_result'),
+                        style: const TextStyle(fontSize: 12)),
+                  ),
+                OutlinedButton.icon(
+                  onPressed: () => _saveTextOrMarkdown('md'),
+                  icon: const FaIcon(FontAwesomeIcons.markdown, size: 12),
+                  label: Text(AppStrings.get(lang, 'save_md'),
+                      style: const TextStyle(fontSize: 12)),
+                ),
+                if (_workspacePath != null)
+                  OutlinedButton.icon(
+                    onPressed: () => revealInDesktopExplorer(_workspacePath!),
+                    icon: const FaIcon(FontAwesomeIcons.folderOpen, size: 12),
+                    label: Text(AppStrings.get(lang, 'reveal_in_finder'),
+                        style: const TextStyle(fontSize: 12)),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
             TextButton.icon(
               onPressed: _reportContent,
-              icon: Icon(
-                Icons.flag_outlined,
-                size: 16,
-                color: widget.isDark ? Colors.grey[500] : Colors.grey[500],
-              ),
+              icon: Icon(Icons.flag_outlined, size: 15, color: Colors.grey[500]),
               label: Text(
                 AppStrings.get(lang, 'report_inappropriate_content'),
-                style: TextStyle(
-                  fontSize: 12,
-                  color: widget.isDark ? Colors.grey[500] : Colors.grey[500],
-                ),
+                style: TextStyle(fontSize: 12, color: Colors.grey[500]),
               ),
             ),
-            const SizedBox(height: 4),
             TextButton(
               onPressed: _reset,
-              style: TextButton.styleFrom(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              ),
               child: Text(
                 AppStrings.get(lang, 'translate_another'),
                 style: TextStyle(
@@ -1038,7 +1176,6 @@ class _TranslateScreenState extends State<TranslateScreen> {
     final lang = context.watch<ConfigProvider>().appLanguage;
     return Column(
       children: [
-        // Dictionary header with toggle
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -1069,10 +1206,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
             ),
           ],
         ),
-
-        const SizedBox(height: 16),
-
-        // Conditional: Upload (Local/Offline) or AI Auto (Online) box
+        const SizedBox(height: 14),
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -1085,18 +1219,12 @@ class _TranslateScreenState extends State<TranslateScreen> {
                     : const Color(0xFFE8E6DF)),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: _useCustomDict
-                  ? (widget.isDark
-                      ? const Color(0xFF444444)
-                      : Colors.grey[300]!)
-                  : (widget.isDark
-                      ? const Color(0xFF444444)
-                      : AppColors.lightBorder),
-              style: _useCustomDict ? BorderStyle.solid : BorderStyle.solid,
+              color: widget.isDark
+                  ? const Color(0xFF444444)
+                  : AppColors.lightBorder,
             ),
           ),
           child: _useCustomDict
-              // Switch ON: Local Mode (Offline) - Show File Picker
               ? Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1114,7 +1242,6 @@ class _TranslateScreenState extends State<TranslateScreen> {
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Text(
                                 _selectedDictionaryPath != null
@@ -1153,7 +1280,6 @@ class _TranslateScreenState extends State<TranslateScreen> {
                                 type: FileType.custom,
                                 allowedExtensions: ['csv'],
                               );
-
                               if (result != null &&
                                   result.files.single.path != null) {
                                 setState(() {
@@ -1162,45 +1288,26 @@ class _TranslateScreenState extends State<TranslateScreen> {
                                 });
                               }
                             } catch (e) {
-                              debugPrint("Error picking dictionary: $e");
-                              DevLogger().warning('TranslateScreen', 'Error picking dictionary', details: e.toString());
+                              DevLogger().warning(
+                                  'TranslateScreen', 'Error picking dictionary',
+                                  details: e.toString());
                               if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                        '${AppStrings.get(lang, 'error_picking_file')}$e'),
-                                    backgroundColor: Colors.red,
-                                  ),
-                                );
+                                _showSnack(
+                                    '${AppStrings.get(lang, 'error_picking_file')}$e',
+                                    isError: true);
                               }
                             }
                           },
-                          style: OutlinedButton.styleFrom(
-                            side: BorderSide(
-                              color: widget.isDark
-                                  ? Colors.grey[500]!
-                                  : Colors.grey[300]!,
-                            ),
-                            backgroundColor: widget.isDark
-                                ? Colors.transparent
-                                : Colors.white,
-                          ),
                           child: Text(
                             _selectedDictionaryPath != null
                                 ? AppStrings.get(lang, 'change_file')
                                 : AppStrings.get(lang, 'choose_file'),
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: widget.isDark
-                                  ? Colors.grey[300]
-                                  : Colors.grey[600],
-                            ),
+                            style: const TextStyle(fontSize: 12),
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 8),
-                    // Hint text for Local Mode
                     Text(
                       AppStrings.get(lang, 'local_mode_hint'),
                       style: TextStyle(
@@ -1212,7 +1319,6 @@ class _TranslateScreenState extends State<TranslateScreen> {
                     ),
                   ],
                 )
-              // Switch OFF: Internet Mode (Online) - Show AI Auto status
               : Row(
                   children: [
                     Container(
@@ -1238,7 +1344,6 @@ class _TranslateScreenState extends State<TranslateScreen> {
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
                             AppStrings.get(lang, 'ai_auto_mode'),
@@ -1257,7 +1362,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
                               color: widget.isDark
                                   ? Colors.grey[400]
                                   : AppColors.lightPrimary
-                                      .withValues(alpha: 0.6),
+                                      .withValues(alpha: 0.65),
                             ),
                           ),
                         ],
@@ -1266,10 +1371,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
                   ],
                 ),
         ).animate().fadeIn(),
-
         const SizedBox(height: 16),
-
-        // Main upload zone
         Expanded(
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),

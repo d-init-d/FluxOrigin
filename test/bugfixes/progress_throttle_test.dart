@@ -276,10 +276,8 @@ void main() {
           final json = jsonDecode(content) as Map<String, dynamic>;
           expect(json['currentIndex'], equals(1));
 
-          // Verify the content matches what we'd expect from toJson()
-          final expectedJson = jsonEncode(progress.toJson());
-          // Note: lastUpdated is set inside saveToFile, so we just verify
-          // the structure is valid and key fields match
+          // Verify the structure is valid and key fields match
+          // (lastUpdated is set inside saveToFile)
           expect(json['sourcePath'], equals('/fake/source.txt'));
           expect(json['rawChunks'], hasLength(3));
         } finally {

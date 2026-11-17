@@ -1,18 +1,17 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:provider/provider.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
+import 'package:provider/provider.dart';
+import '../../controllers/batch_translation_controller.dart';
+import '../../services/ai_service.dart';
+import '../../services/dev_logger.dart';
+import '../../utils/app_strings.dart';
 import '../theme/app_theme.dart';
 import '../theme/config_provider.dart';
 import '../widgets/language_selector.dart';
-import '../../controllers/batch_translation_controller.dart';
-import '../../utils/app_strings.dart';
-import '../../services/dev_logger.dart';
+import '../widgets/ollama_connection_dialog.dart';
 
-/// Screen that translates every matching file in a chosen folder.
-///
-/// This is the UI for the "Batch Translate" feature (GitHub issue #5).
 class BatchTranslateScreen extends StatefulWidget {
   final bool isDark;
 
@@ -25,22 +24,34 @@ class BatchTranslateScreen extends StatefulWidget {
 class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
   final BatchTranslationController _controller = BatchTranslationController();
 
-  // Configuration
   String? _folderPath;
   String? _dictionaryPath;
   bool _recursive = false;
   bool _skipExisting = true;
+  bool _preserveFormat = true;
+  bool _allowInternet = false;
+  final Set<String> _selectedExts = {'.txt', '.md', '.epub'};
   String _sourceLang = 'Tiếng Anh';
   String _targetLang = 'Tiếng Việt';
 
-  // State
   List<String> _discoveredFiles = const [];
   BatchResult? _result;
   BatchProgress? _progress;
   bool _isRunning = false;
   String _statusMessage = '';
 
-  final List<String> _allLanguages = ['Tiếng Anh', 'Tiếng Trung', 'Tiếng Việt'];
+  static const List<String> _allLanguages = [
+    'Tiếng Anh',
+    'Tiếng Trung',
+    'Tiếng Việt',
+    'Tiếng Nhật',
+    'Tiếng Hàn',
+    'Tiếng Pháp',
+    'Tiếng Đức',
+    'Tiếng Tây Ban Nha',
+  ];
+
+  static const List<String> _availableExts = ['.txt', '.md', '.epub', '.pdf'];
 
   Future<void> _pickFolder() async {
     final result = await FilePicker.platform.getDirectoryPath(
@@ -62,14 +73,14 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
   }
 
   Future<void> _refreshDiscoveredFiles() async {
-    if (_folderPath == null) {
+    if (_folderPath == null || _selectedExts.isEmpty) {
       setState(() => _discoveredFiles = const []);
       return;
     }
     final files = await BatchTranslationController.scanFolder(
       _folderPath!,
       recursive: _recursive,
-      extensions: const ['.txt'],
+      extensions: _selectedExts.toList(),
     );
     setState(() => _discoveredFiles = files);
   }
@@ -84,6 +95,32 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
       _snack(AppStrings.get(lang, 'please_configure_project'), isError: true);
       return;
     }
+
+    final probe = AIService();
+    final (connected, _, _) = await probe.checkConnection(
+      url: configProvider.currentAiUrl,
+      providerType: configProvider.effectiveAiServiceType,
+      apiKey: configProvider.activeApiKey,
+    );
+    if (!connected) {
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => OllamaConnectionDialog(
+            isDark: widget.isDark,
+            lang: lang,
+          ),
+        );
+      }
+      return;
+    }
+
+    _controller.setAIUrl(configProvider.currentAiUrl);
+    _controller.setAIProviderType(configProvider.effectiveAiServiceType);
+    _controller.setAIApiKey(configProvider.activeApiKey);
+    _controller.setTemperature(configProvider.temperature);
+    _controller.setChunkSize(configProvider.targetChunkSize);
+    _controller.setDeepMode(configProvider.dTranscreateDeepMode);
 
     setState(() {
       _isRunning = true;
@@ -106,10 +143,12 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
         modelName: configProvider.selectedModel,
         sourceLanguage: _sourceLang,
         targetLanguage: _targetLang,
-        allowInternet: false,
+        allowInternet: _allowInternet,
         userGlossaryPath: _dictionaryPath,
         recursive: _recursive,
         skipExisting: _skipExisting,
+        extensions: _selectedExts.toList(),
+        preserveOriginalFormat: _preserveFormat,
         onUpdate: (p) {
           if (!mounted) return;
           setState(() {
@@ -131,19 +170,14 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      DevLogger()
-          .error('BatchScreen', 'Batch failed', details: e.toString());
-      _snack(
-          '${AppStrings.get(lang, 'status_error')}: $e',
-          isError: true);
+      DevLogger().error('BatchScreen', 'Batch failed', details: e.toString());
+      _snack('${AppStrings.get(lang, 'status_error')}: $e', isError: true);
     } finally {
       if (mounted) setState(() => _isRunning = false);
     }
   }
 
-  void _requestPause() {
-    _controller.requestPause();
-  }
+  void _requestPause() => _controller.requestPause();
 
   void _snack(String msg, {bool isError = false}) {
     if (!mounted) return;
@@ -152,8 +186,7 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
         content: Text(msg),
         backgroundColor: isError ? Colors.red : null,
         behavior: SnackBarBehavior.floating,
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }
@@ -167,9 +200,9 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildHeader(lang),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           _buildConfig(lang),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           Expanded(child: _buildBody(lang)),
         ],
       ),
@@ -194,9 +227,7 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
                   fontFamily: 'Merriweather',
-                  color: widget.isDark
-                      ? Colors.white
-                      : AppColors.lightPrimary,
+                  color: widget.isDark ? Colors.white : AppColors.lightPrimary,
                 ),
               ),
               const SizedBox(height: 4),
@@ -204,8 +235,7 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
                 AppStrings.get(lang, 'batch_subtitle'),
                 style: TextStyle(
                   fontSize: 13,
-                  color:
-                      widget.isDark ? Colors.grey[400] : Colors.grey[600],
+                  color: widget.isDark ? Colors.grey[400] : Colors.grey[600],
                 ),
               ),
             ],
@@ -224,23 +254,18 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
             : Colors.grey[50],
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: widget.isDark
-              ? const Color(0xFF444444)
-              : Colors.grey[300]!,
+          color: widget.isDark ? const Color(0xFF444444) : Colors.grey[300]!,
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Folder row
           Row(
             children: [
               FaIcon(
                 FontAwesomeIcons.folderOpen,
-                size: 18,
-                color: widget.isDark
-                    ? Colors.white
-                    : AppColors.lightPrimary,
+                size: 16,
+                color: widget.isDark ? Colors.white : AppColors.lightPrimary,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -250,12 +275,8 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
                   style: TextStyle(
                     fontSize: 13,
                     color: _folderPath == null
-                        ? (widget.isDark
-                            ? Colors.grey[500]
-                            : Colors.grey[500])
-                        : (widget.isDark
-                            ? Colors.white
-                            : Colors.black87),
+                        ? Colors.grey[500]
+                        : (widget.isDark ? Colors.white : Colors.black87),
                   ),
                 ),
               ),
@@ -265,17 +286,13 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
-
-          // Dictionary row (optional)
+          const SizedBox(height: 10),
           Row(
             children: [
               FaIcon(
                 FontAwesomeIcons.book,
-                size: 18,
-                color: widget.isDark
-                    ? Colors.white
-                    : AppColors.lightPrimary,
+                size: 16,
+                color: widget.isDark ? Colors.white : AppColors.lightPrimary,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -287,12 +304,8 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
                   style: TextStyle(
                     fontSize: 13,
                     color: _dictionaryPath == null
-                        ? (widget.isDark
-                            ? Colors.grey[500]
-                            : Colors.grey[500])
-                        : (widget.isDark
-                            ? Colors.white
-                            : Colors.black87),
+                        ? Colors.grey[500]
+                        : (widget.isDark ? Colors.white : Colors.black87),
                   ),
                 ),
               ),
@@ -309,62 +322,96 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
-
-          // Toggles + language selectors
-          Row(
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Expanded(
-                child: Row(
-                  children: [
-                    Switch(
-                      value: _recursive,
-                      onChanged: _isRunning
-                          ? null
-                          : (v) {
-                              setState(() => _recursive = v);
-                              _refreshDiscoveredFiles();
-                            },
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        AppStrings.get(lang, 'batch_recursive'),
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ),
-                  ],
-                ),
+              ..._availableExts.map((ext) {
+                final selected = _selectedExts.contains(ext);
+                return FilterChip(
+                  label: Text(ext.toUpperCase(),
+                      style: const TextStyle(fontSize: 11)),
+                  selected: selected,
+                  onSelected: _isRunning
+                      ? null
+                      : (v) {
+                          setState(() {
+                            if (v) {
+                              _selectedExts.add(ext);
+                            } else if (_selectedExts.length > 1) {
+                              _selectedExts.remove(ext);
+                            }
+                          });
+                          _refreshDiscoveredFiles();
+                        },
+                );
+              }),
+              const SizedBox(width: 12),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Switch(
+                    value: _recursive,
+                    onChanged: _isRunning
+                        ? null
+                        : (v) {
+                            setState(() => _recursive = v);
+                            _refreshDiscoveredFiles();
+                          },
+                  ),
+                  Text(AppStrings.get(lang, 'batch_recursive'),
+                      style: const TextStyle(fontSize: 12)),
+                ],
               ),
-              Expanded(
-                child: Row(
-                  children: [
-                    Switch(
-                      value: _skipExisting,
-                      onChanged: _isRunning
-                          ? null
-                          : (v) => setState(() => _skipExisting = v),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        AppStrings.get(lang, 'batch_skip_existing'),
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ),
-                  ],
-                ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Switch(
+                    value: _skipExisting,
+                    onChanged: _isRunning
+                        ? null
+                        : (v) => setState(() => _skipExisting = v),
+                  ),
+                  Text(AppStrings.get(lang, 'batch_skip_existing'),
+                      style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Switch(
+                    value: _preserveFormat,
+                    onChanged: _isRunning
+                        ? null
+                        : (v) => setState(() => _preserveFormat = v),
+                  ),
+                  Text(AppStrings.get(lang, 'batch_preserve_format'),
+                      style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Switch(
+                    value: _allowInternet,
+                    onChanged: _isRunning
+                        ? null
+                        : (v) => setState(() => _allowInternet = v),
+                  ),
+                  Text(AppStrings.get(lang, 'batch_online_rag'),
+                      style: const TextStyle(fontSize: 12)),
+                ],
               ),
             ],
           ),
-          const SizedBox(height: 8),
-
-          // Languages
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
                 child: SizedBox(
-                  height: 48,
+                  height: 44,
                   child: LanguageSelector(
                     value: _sourceLang,
                     isDark: widget.isDark,
@@ -373,9 +420,7 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
                     onChange: _isRunning
                         ? (_) {}
                         : (v) => setState(() {
-                              if (v == _targetLang) {
-                                _targetLang = _sourceLang;
-                              }
+                              if (v == _targetLang) _targetLang = _sourceLang;
                               _sourceLang = v;
                             }),
                   ),
@@ -384,7 +429,7 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: SizedBox(
-                  height: 48,
+                  height: 44,
                   child: LanguageSelector(
                     value: _targetLang,
                     isDark: widget.isDark,
@@ -398,10 +443,7 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
               ),
             ],
           ),
-
           const SizedBox(height: 12),
-
-          // File count + Start
           Row(
             children: [
               Expanded(
@@ -427,16 +469,14 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
                 )
               else
                 ElevatedButton.icon(
-                  onPressed: (_folderPath == null ||
-                          _discoveredFiles.isEmpty)
+                  onPressed: (_folderPath == null || _discoveredFiles.isEmpty)
                       ? null
                       : _start,
                   icon: const FaIcon(FontAwesomeIcons.play, size: 12),
                   label: Text(AppStrings.get(lang, 'batch_start')),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: widget.isDark
-                        ? Colors.white
-                        : AppColors.lightPrimary,
+                    backgroundColor:
+                        widget.isDark ? Colors.white : AppColors.lightPrimary,
                     foregroundColor:
                         widget.isDark ? Colors.black : Colors.white,
                     elevation: 0,
@@ -444,9 +484,8 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
                 ),
             ],
           ),
-
           if (_progress != null) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             LinearProgressIndicator(
               value: _progress!.total > 0 ? _progress!.fraction : null,
               minHeight: 6,
@@ -454,17 +493,14 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
               backgroundColor: widget.isDark
                   ? Colors.white.withValues(alpha: 0.1)
                   : Colors.grey[200],
-              color: widget.isDark
-                  ? Colors.white
-                  : AppColors.lightPrimary,
+              color: widget.isDark ? Colors.white : AppColors.lightPrimary,
             ),
             const SizedBox(height: 4),
             Text(
               _statusMessage,
               style: TextStyle(
                 fontSize: 12,
-                color:
-                    widget.isDark ? Colors.grey[400] : Colors.grey[600],
+                color: widget.isDark ? Colors.grey[400] : Colors.grey[600],
               ),
             ),
           ],
@@ -483,11 +519,9 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
     if (items.isEmpty) {
       return Center(
         child: Text(
-          _folderPath == null
-              ? AppStrings.get(lang, 'batch_no_folder')
-              : '—',
+          _folderPath == null ? AppStrings.get(lang, 'batch_no_folder') : '—',
           style: TextStyle(
-            color: widget.isDark ? Colors.grey[500] : Colors.grey[500],
+            color: Colors.grey[500],
             fontStyle: FontStyle.italic,
           ),
         ),
@@ -499,18 +533,14 @@ class _BatchTranslateScreenState extends State<BatchTranslateScreen> {
         color: widget.isDark ? AppColors.darkSurface : Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: widget.isDark
-              ? const Color(0xFF444444)
-              : Colors.grey[300]!,
+          color: widget.isDark ? const Color(0xFF444444) : Colors.grey[300]!,
         ),
       ),
       child: ListView.separated(
         itemCount: items.length,
         separatorBuilder: (_, __) => Divider(
           height: 1,
-          color: widget.isDark
-              ? const Color(0xFF333333)
-              : Colors.grey[200],
+          color: widget.isDark ? const Color(0xFF333333) : Colors.grey[200],
         ),
         itemBuilder: (ctx, i) {
           final item = items[i];
@@ -553,17 +583,18 @@ class _BatchFileRow extends StatelessWidget {
       subtitle: result.errorMessage != null
           ? Text(
               result.errorMessage!,
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.red[300],
-              ),
+              style: TextStyle(fontSize: 11, color: Colors.red[300]),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             )
-          : null,
+          : (result.qaScore != null
+              ? Text(
+                  'QA ${result.qaScore}/100',
+                  style: TextStyle(fontSize: 11, color: Colors.green[400]),
+                )
+              : null),
       trailing: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(8),

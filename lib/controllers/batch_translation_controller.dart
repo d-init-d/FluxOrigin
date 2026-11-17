@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as path;
 import 'translation_controller.dart';
+import '../services/ai_service.dart';
 import '../services/dev_logger.dart';
 
 /// Status of a single file within a batch run.
@@ -20,6 +21,7 @@ class BatchFileResult {
   BatchFileStatus status;
   String? errorMessage;
   String? outputPath;
+  int? qaScore;
 
   BatchFileResult({
     required this.filePath,
@@ -27,6 +29,7 @@ class BatchFileResult {
     this.status = BatchFileStatus.pending,
     this.errorMessage,
     this.outputPath,
+    this.qaScore,
   });
 }
 
@@ -72,10 +75,9 @@ class BatchResult {
 
 /// Translates every matching file in a folder sequentially.
 ///
-/// This is the controller behind the "Batch Translate" feature
-/// (GitHub issue #5). It reuses [TranslationController.processFile] for the
-/// per-file work, so all the recent fixes (issue #6 user-glossary handling,
-/// pause/resume, progress throttling) automatically apply to batch runs too.
+/// Reuses [TranslationController.processFile] for each file so D-Transcreate
+/// mining, Anchor-Locked EPUB rebuilds, BYOK multi-key rotation, QA gates,
+/// pause/resume, and issue #6 user-glossary handling apply across batches.
 class BatchTranslationController {
   final TranslationController _translationController = TranslationController();
   final DevLogger _logger = DevLogger();
@@ -83,25 +85,30 @@ class BatchTranslationController {
   bool _isPaused = false;
   bool _isRunning = false;
 
-  /// Whether a batch run is currently in progress.
   bool get isRunning => _isRunning;
 
-  /// Request a graceful pause. The currently-translating chunk finishes,
-  /// then the loop exits before starting the next file.
+  void setAIUrl(String url) => _translationController.setAIUrl(url);
+  void setAIProviderType(AIProviderType type) =>
+      _translationController.setAIProviderType(type);
+  void setAIApiKey(String rawKeys) =>
+      _translationController.setAIApiKey(rawKeys);
+  void setTemperature(double temperature) =>
+      _translationController.setTemperature(temperature);
+  void setChunkSize(int chunkSize) =>
+      _translationController.setChunkSize(chunkSize);
+  void setDeepMode(bool enabled) =>
+      _translationController.setDeepMode(enabled);
+
   void requestPause() {
     _isPaused = true;
+    _translationController.requestPause();
   }
 
-  /// Reset pause state — call before starting/resuming.
   void resetPause() {
     _isPaused = false;
+    _translationController.resetPause();
   }
 
-  /// Scan a folder for files matching the given extensions.
-  ///
-  /// Returns an empty list (and logs a warning) if the folder does not exist
-  /// or is not a directory. Hidden files (names starting with `.`) are
-  /// skipped to avoid surprising the user with `.DS_Store`, `Thumbs.db`, etc.
   static Future<List<String>> scanFolder(
     String folderPath, {
     bool recursive = false,
@@ -118,7 +125,7 @@ class BatchTranslationController {
     Future<void> walk(Directory d) async {
       await for (final entity in d.list(followLinks: false)) {
         final name = path.basename(entity.path);
-        if (name.startsWith('.')) continue; // skip hidden
+        if (name.startsWith('.')) continue;
         if (entity is Directory) {
           if (recursive) {
             await walk(entity);
@@ -137,13 +144,6 @@ class BatchTranslationController {
     return results;
   }
 
-  /// Run a batch translation over every file in [folderPath] matching the
-  /// given extensions. The call is **sequential** (one file at a time) to
-  /// avoid overloading the local LLM and to keep the UI simple.
-  ///
-  /// Per-file results are streamed via [onUpdate] with a [BatchProgress]
-  /// snapshot. The final [BatchResult] is returned when the run finishes
-  /// (or is paused).
   Future<BatchResult> translateFolder({
     required String folderPath,
     required String dictionaryDir,
@@ -157,6 +157,8 @@ class BatchTranslationController {
     List<String> extensions = const ['.txt'],
     required Function(BatchProgress progress) onUpdate,
     String appLanguage = 'vi',
+    bool preserveOriginalFormat = false,
+    String? genreOverride,
   }) async {
     if (_isRunning) {
       throw StateError(
@@ -172,6 +174,7 @@ Recursive: $recursive
 Skip existing: $skipExisting
 Extensions: $extensions
 Shared glossary: ${userGlossaryPath ?? "<none>"}
+Preserve format: $preserveOriginalFormat
 ''');
 
     try {
@@ -205,7 +208,6 @@ Shared glossary: ${userGlossaryPath ?? "<none>"}
         if (_isPaused) {
           _logger.info('Batch',
               'Paused at file ${i + 1}/${results.length} (${results[i].fileName})');
-          // Mark remaining as pending; the user can resume
           for (int j = i; j < results.length; j++) {
             results[j].status = BatchFileStatus.pending;
           }
@@ -222,16 +224,16 @@ Shared glossary: ${userGlossaryPath ?? "<none>"}
           currentFile: result.fileName,
         ));
 
-        // Skip if output already exists and user opted into skipExisting.
-        // The convention is: <originalName>_translated.txt in the same folder.
-        final outputPath = _deriveOutputPath(result.filePath);
+        final outputPath = _deriveOutputPath(
+          result.filePath,
+          preserveOriginalFormat: preserveOriginalFormat,
+        );
         final outputFile = File(outputPath);
         if (skipExisting && await outputFile.exists()) {
           result.status = BatchFileStatus.skipped;
           result.outputPath = outputPath;
           skipped++;
-          _logger.info('Batch',
-              'Skipped (output exists): ${result.fileName}');
+          _logger.info('Batch', 'Skipped (output exists): ${result.fileName}');
           continue;
         }
 
@@ -245,33 +247,41 @@ Shared glossary: ${userGlossaryPath ?? "<none>"}
             allowInternet: allowInternet,
             userGlossaryPath: userGlossaryPath,
             appLanguage: appLanguage,
-            // Pause is propagated via TranslationController; we still
-            // surface it through our own _isPaused flag below.
-            onUpdate: (_, __) {/* per-file progress not surfaced at batch level */},
+            genreOverride: genreOverride,
+            preserveEpubLayout: preserveOriginalFormat,
+            onUpdate: (_, __) {},
             onChunkUpdate: (_, __, ___, ____) {},
           );
 
           if (translated == null) {
-            // Inner controller paused — treat as pause for the batch.
             result.status = BatchFileStatus.pending;
             result.errorMessage = 'paused';
             _isPaused = true;
             break;
           }
 
-          // Save the translated content next to the source file.
-          await outputFile.writeAsString(translated);
+          final epubBytes = _translationController.lastTranslatedEpubBytes;
+          if (preserveOriginalFormat &&
+              result.filePath.toLowerCase().endsWith('.epub') &&
+              epubBytes != null &&
+              epubBytes.isNotEmpty) {
+            await outputFile.writeAsBytes(epubBytes, flush: true);
+          } else {
+            await outputFile.writeAsString(translated, flush: true);
+          }
+
           result.status = BatchFileStatus.done;
           result.outputPath = outputPath;
+          result.qaScore = _translationController.lastQaReport?.score;
           completed++;
           _logger.info('Batch',
-              'Done: ${result.fileName} → $outputPath (${translated.length} chars)');
+              'Done: ${result.fileName} → $outputPath (${translated.length} chars, QA=${result.qaScore ?? "n/a"})');
         } catch (e) {
           result.status = BatchFileStatus.failed;
           result.errorMessage = e.toString();
           failed++;
-          _logger.error('Batch', 'Failed: ${result.fileName}', details: e.toString());
-          // Continue with the next file rather than aborting the whole batch.
+          _logger.error('Batch', 'Failed: ${result.fileName}',
+              details: e.toString());
         }
       }
 
@@ -297,19 +307,26 @@ Shared glossary: ${userGlossaryPath ?? "<none>"}
     }
   }
 
-  /// Build the default output path for a translated file.
-  ///
-  /// Convention: `<originalName>_translated.txt` written in the same folder
-  /// as the source. This is intentionally simple — the user can move/rename
-  /// the output later, and a later enhancement could expose a configurable
-  /// naming pattern.
-  static String _deriveOutputPath(String sourcePath) {
+  /// Default output path next to the source: `<originalName>_translated.txt`,
+  /// or preserves `.epub`/`.md` extension when [preserveOriginalFormat] is true.
+  static String _deriveOutputPath(
+    String sourcePath, {
+    bool preserveOriginalFormat = false,
+  }) {
     final dir = path.dirname(sourcePath);
     final name = path.basenameWithoutExtension(sourcePath);
+    if (preserveOriginalFormat) {
+      final lower = sourcePath.toLowerCase();
+      if (lower.endsWith('.epub')) {
+        return path.join(dir, '${name}_translated.epub');
+      }
+      if (lower.endsWith('.md') || lower.endsWith('.markdown')) {
+        return path.join(dir, '${name}_translated.md');
+      }
+    }
     return path.join(dir, '${name}_translated.txt');
   }
 
-  /// Exposed for tests — see deriveOutputPath.
   @visibleForTesting
   static String debugDeriveOutputPath(String sourcePath) =>
       _deriveOutputPath(sourcePath);

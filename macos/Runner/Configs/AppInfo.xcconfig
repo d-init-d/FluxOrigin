@@ -1,0 +1,10 @@
+// Application-level settings for the Runner target.
+
+// The application's name. By default this is also the title of the Flutter window.
+PRODUCT_NAME = FluxOrigin
+
+// The application's bundle identifier
+PRODUCT_BUNDLE_IDENTIFIER = com.dinitd.fluxorigin
+
+// The copyright displayed in application information
+PRODUCT_COPYRIGHT = Copyright © 2026 d-init-d. All rights reserved.

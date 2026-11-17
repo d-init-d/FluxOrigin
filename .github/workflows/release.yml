@@ -1,0 +1,234 @@
+name: Release Multi-Platform (macOS + Windows + Linux)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to package and publish (e.g. v3.0.0)'
+        required: true
+        default: 'v3.0.0'
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  verify:
+    name: Verify Analyze & Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Run tests
+        run: flutter test
+
+      - name: Verify embedded D-Transcreate CLI
+        run: python3 tools/d_transcreate/book_ops.py --help
+
+  build-macos:
+    name: Build macOS (.dmg + .zip)
+    needs: verify
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable macOS desktop & fetch packages
+        run: |
+          flutter config --enable-macos-desktop
+          flutter pub get
+
+      - name: Build macOS Release (.app)
+        run: flutter build macos --release
+
+      - name: Embed D-Transcreate toolkit & ad-hoc codesign
+        run: |
+          mkdir -p dist_macos
+          APP_PATH=$(find build/macos/Build/Products/Release -maxdepth 1 -name "*.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app bundle produced under build/macos/Build/Products/Release" >&2
+            exit 1
+          fi
+          APP_BUNDLE="dist_macos/FluxOrigin.app"
+          cp -R "$APP_PATH" "$APP_BUNDLE"
+          mkdir -p "$APP_BUNDLE/Contents/Resources/d_transcreate"
+          cp -R tools/d_transcreate/* "$APP_BUNDLE/Contents/Resources/d_transcreate/"
+          xattr -cr "$APP_BUNDLE" || true
+          codesign --force --deep --sign - "$APP_BUNDLE"
+
+      - name: Package macOS .zip and .dmg
+        run: |
+          mkdir -p out_macos dmg_stage
+          ditto -c -k --sequesterRsrc --keepParent dist_macos/FluxOrigin.app "out_macos/FluxOrigin-${RELEASE_TAG}-macos-universal.zip"
+          cp -R dist_macos/FluxOrigin.app dmg_stage/
+          ln -s /Applications dmg_stage/Applications
+          hdiutil create \
+            -volname "FluxOrigin" \
+            -srcfolder dmg_stage \
+            -ov -format UDZO \
+            "out_macos/FluxOrigin-${RELEASE_TAG}-macos-universal.dmg"
+          (cd out_macos && shasum -a 256 FluxOrigin-* > SHA256SUMS-macos.txt)
+          ls -lh out_macos
+
+      - name: Upload macOS release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: out_macos/*
+
+  build-windows:
+    name: Build Windows (Setup .exe + Portable .zip)
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable Windows desktop & fetch packages
+        run: |
+          flutter config --enable-windows-desktop
+          flutter pub get
+
+      - name: Build Windows Release
+        run: flutter build windows --release
+
+      - name: Stage portable ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out_windows | Out-Null
+          New-Item -ItemType Directory -Force -Path build\windows\x64\runner\Release\tools\d_transcreate | Out-Null
+          Copy-Item -Path tools\d_transcreate\* -Destination build\windows\x64\runner\Release\tools\d_transcreate -Recurse -Force
+          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "out_windows\FluxOrigin-${env:RELEASE_TAG}-windows-x64-portable.zip" -Force
+
+      - name: Ensure Inno Setup 6 & build Windows installer (.exe)
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          $ver = "${env:RELEASE_TAG}".TrimStart('v')
+          & $iscc "/DMyAppVersion=$ver" "/DMyOutputBaseFilename=FluxOrigin-${env:RELEASE_TAG}-windows-x64-setup" installers\Flux_Origin.iss
+          Copy-Item -Path "releases\FluxOrigin-${env:RELEASE_TAG}-windows-x64-setup.exe" -Destination "out_windows\" -Force
+          Push-Location out_windows
+          Get-FileHash FluxOrigin-* -Algorithm SHA256 | ForEach-Object {
+            "$($_.Hash.ToLower())  $(Split-Path -Leaf $_.Path)"
+          } | Out-File -Encoding ascii SHA256SUMS-windows.txt
+          Pop-Location
+          Get-ChildItem out_windows
+
+      - name: Upload Windows release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: out_windows/*
+
+  build-linux:
+    name: Build Linux (.tar.gz)
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable Linux desktop & fetch packages
+        run: |
+          flutter config --enable-linux-desktop
+          flutter pub get
+
+      - name: Build Linux Release
+        run: flutter build linux --release
+
+      - name: Package Linux tarball
+        run: |
+          mkdir -p out_linux build/linux/x64/release/bundle/tools/d_transcreate
+          cp -R tools/d_transcreate/* build/linux/x64/release/bundle/tools/d_transcreate/
+          tar -czvf "out_linux/FluxOrigin-${RELEASE_TAG}-linux-x64.tar.gz" -C build/linux/x64/release/bundle .
+          (cd out_linux && sha256sum FluxOrigin-* > SHA256SUMS-linux.txt)
+          ls -lh out_linux
+
+      - name: Upload Linux release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: out_linux/*
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-macos, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Consolidate SHA256SUMS.txt
+        run: |
+          (cd dist && cat SHA256SUMS-*.txt > SHA256SUMS.txt && rm -f SHA256SUMS-*.txt)
+          ls -lh dist/
+          cat dist/SHA256SUMS.txt
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES_FILE=".github/releases/${RELEASE_TAG}.md"
+          TITLE="FluxOrigin ${RELEASE_TAG} — macOS + Windows + Linux, D-Transcreate v1.1.0 & BYOK Cloud AI"
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            if [ -f "$NOTES_FILE" ]; then
+              gh release edit "${RELEASE_TAG}" --title "$TITLE" --notes-file "$NOTES_FILE"
+            fi
+            gh release upload "${RELEASE_TAG}" dist/* --clobber
+          else
+            if [ -f "$NOTES_FILE" ]; then
+              gh release create "${RELEASE_TAG}" dist/* --title "$TITLE" --notes-file "$NOTES_FILE"
+            else
+              gh release create "${RELEASE_TAG}" dist/* --title "$TITLE" --generate-notes
+            fi
+          fi
