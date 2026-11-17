@@ -15,7 +15,7 @@ dependencies:
 
   # UI dependencies
   google_fonts: ^6.1.0
-  font_awesome_flutter: ^10.6.0
+  font_awesome_flutter: ^11.0.0
   flutter_animate: ^4.3.0
 
   # State management & storage

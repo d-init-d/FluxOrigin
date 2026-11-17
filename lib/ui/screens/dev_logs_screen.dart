@@ -422,7 +422,7 @@ ${log.details != null ? '\nDetails:\n${log.details}' : ''}
 }
 
 class _ActionButton extends StatelessWidget {
-  final IconData icon;
+  final FaIconData icon;
   final String label;
   final bool isDark;
   final bool isActive;

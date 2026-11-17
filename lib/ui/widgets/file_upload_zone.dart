@@ -13,7 +13,7 @@ class FileUploadZone extends StatefulWidget {
   final bool isDark;
   final String? title;
   final String? subtitle;
-  final IconData icon;
+  final FaIconData icon;
   final bool enabled;
 
   final Function(String)? onFileSelected;

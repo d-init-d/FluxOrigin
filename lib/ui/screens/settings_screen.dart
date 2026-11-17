@@ -225,7 +225,7 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   Widget _buildProviderButton({
     required String label,
-    required IconData icon,
+    required FaIconData icon,
     required bool isSelected,
     required VoidCallback onTap,
   }) {
@@ -1536,7 +1536,7 @@ class _SettingsScreenState extends State<SettingsScreen>
 }
 
 class _SectionHeader extends StatelessWidget {
-  final IconData icon;
+  final FaIconData icon;
   final String title;
   final bool isDark;
   final VoidCallback? onRefresh;

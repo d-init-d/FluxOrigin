@@ -932,7 +932,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
   Widget _buildTextPanel({
     required String title,
     required String content,
-    required IconData icon,
+    required FaIconData icon,
     required Color iconColor,
     bool isTranslating = false,
   }) {

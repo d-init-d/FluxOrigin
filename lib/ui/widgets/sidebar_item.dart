@@ -3,7 +3,7 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../theme/app_theme.dart';
 
 class SidebarItem extends StatefulWidget {
-  final IconData icon;
+  final FaIconData icon;
   final String label;
   final bool isActive;
   final VoidCallback onTap;
